@@ -1,0 +1,314 @@
+/* =====================================================================
+   Trainingstagebuch – Aussehen
+   Idee: Beton-Grau als Hintergrund, schwarze Intervall-Uhr oben (wie im Gym),
+   durchgeführte Workouts im Kalender als farbige Hantelscheiben.
+   Aufbau: 1. Farben/Schrift  2. Grundlagen  3. Bausteine  4. Ansichten
+   ===================================================================== */
+
+/* ---------- 1. Farben und Schrift ---------- */
+:root {
+  --bg: #e6e9ec;          /* Beton */
+  --surface: #f8f9fa;     /* Listen und Felder */
+  --ink: #12161b;         /* Text */
+  --muted: #5b6570;       /* Nebentext */
+  --line: #cdd2d8;        /* feine Linien */
+  --accent: #2740ff;      /* heutiger Tag, Hauptknöpfe */
+  --on-accent: #ffffff;
+  --bar: #0d1014;         /* obere Leiste */
+  --bar-ink: #f2f4f6;
+  --rest: #ffb824;        /* Ziffern der Pausenuhr */
+  --danger: #b3261e;
+  --font: "Bahnschrift", "DIN Alternate", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1215;
+    --surface: #181c21;
+    --ink: #eceff2;
+    --muted: #98a1ab;
+    --line: #2b3138;
+    --accent: #8f9cff;
+    --on-accent: #0d1014;
+    --bar: #05070a;
+    --danger: #ff8a80;
+  }
+}
+
+/* ---------- 2. Grundlagen ---------- */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 1rem/1.45 var(--font);
+}
+
+main { max-width: 720px; margin: 0 auto; padding: 20px 16px 64px; }
+
+h1 { font-size: clamp(1.8rem, 6vw, 2.3rem); line-height: 1.1; margin: 12px 0 18px; letter-spacing: -0.01em; }
+h2, h3, p { margin: 0; }
+
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.muted { color: var(--muted); }
+.small { font-size: .875rem; }
+.grow { flex: 1; min-width: 0; }
+.empty { color: var(--muted); padding: 16px; }
+
+/* ---------- 3. Bausteine ---------- */
+
+/* Obere Leiste mit den Uhren */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 64px; padding: 8px 16px;
+  background: var(--bar); color: var(--bar-ink);
+}
+.brand { font-weight: 700; font-size: 1.15rem; text-decoration: none; }
+
+.timers { display: flex; gap: 18px; }
+.timer { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.timer-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.timer-label { font-size: .75rem; opacity: .65; }
+.timer.rest .timer-value { color: var(--rest); }
+
+/* Knöpfe */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 22px;
+  border: 2px solid var(--ink); border-radius: 14px;
+  background: transparent; color: var(--ink);
+  font: inherit; font-weight: 700; font-size: 1.05rem;
+  text-decoration: none; cursor: pointer;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.big { width: 100%; min-height: 68px; font-size: 1.35rem; }
+.btn.quiet { border-color: transparent; color: var(--muted); min-height: 44px; padding: 0 12px; font-weight: 600; }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.icon-btn {
+  width: 48px; height: 48px; border-radius: 50%;
+  border: 2px solid var(--line); background: transparent; color: var(--ink);
+  font: inherit; font-size: 1.5rem; line-height: 1; cursor: pointer;
+}
+.icon-x {
+  width: 44px; height: 44px; border: 0; background: transparent;
+  color: var(--muted); font-size: 1.1rem; cursor: pointer; border-radius: 50%;
+}
+
+.back { display: inline-block; padding: 10px 0; color: var(--muted); text-decoration: none; font-weight: 600; }
+
+/* Eingabefelder */
+input[type=text], input[type=password], input[type=number], input[type=date], input[type=time] {
+  width: 100%; min-height: 52px; padding: 0 14px;
+  border: 2px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--ink); font: inherit;
+}
+input:focus { border-color: var(--accent); outline: none; }
+
+/* Gruppierte Listen: Zeilen getrennt durch feine Linien */
+.sheet { background: var(--surface); border-radius: 16px; overflow: hidden; }
+.sheet > * + * { border-top: 1px solid var(--line); }
+.row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; }
+
+/* Farbpunkt eines Workouts */
+.dot { display: block; flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.dot.lg { width: 16px; height: 16px; }
+
+/* Kurze Hinweismeldung unten */
+.toast {
+  position: fixed; left: 16px; right: 16px; bottom: 20px; z-index: 20;
+  max-width: 480px; margin: 0 auto; padding: 14px 18px;
+  border-radius: 12px; background: var(--ink); color: var(--bg); font-weight: 600;
+}
+
+/* ---------- 4. Ansichten ---------- */
+
+/* Startseite: Hinweis auf laufendes Workout */
+.running {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px; border-radius: 16px; background: var(--bar); color: var(--bar-ink);
+}
+.running strong { display: block; font-size: 1.15rem; }
+.running .muted { color: var(--bar-ink); opacity: .65; }
+
+.home-links { display: flex; justify-content: flex-end; margin: 4px 0 8px; }
+
+/* Kalender */
+.calendar-head { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 8px; }
+.calendar-head h2 { font-size: 1.5rem; text-transform: capitalize; text-align: center; }
+.calendar-head .month-title { flex: 1; text-align: center; }
+.weekdays, .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.weekdays span { text-align: center; font-size: .8rem; color: var(--muted); padding-bottom: 4px; }
+
+.day {
+  display: grid; place-items: center; min-width: 0; padding: 5px 0;
+  border: 0; border-radius: 12px; background: transparent; color: var(--ink);
+  font: inherit; cursor: default;
+}
+.day.has { cursor: pointer; }
+.day.selected { background: var(--surface); box-shadow: inset 0 0 0 2px var(--ink); }
+.day .num {
+  display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  font-weight: 600; font-size: 1.02rem; font-variant-numeric: tabular-nums;
+}
+/* Durchgeführtes Workout = farbige Hantelscheibe (--plate steht im HTML) */
+.day.has .num { background: var(--plate); color: #fff; font-weight: 700; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .35); }
+/* Heute: blauer Ring, ohne Workout ausgefüllt */
+.day.today .num { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.day.today.has .num { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .35), 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.day.today:not(.has) .num { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 14px 0 4px; color: var(--muted); font-size: .9rem; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Details zu einem Tag im Kalender */
+.detail { margin-top: 18px; background: var(--surface); border-radius: 16px; padding: 16px; }
+.detail h2 { font-size: 1.2rem; margin-bottom: 8px; }
+.detail-session + .detail-session { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.detail-head h3 { font-size: 1.1rem; }
+.detail-ex { margin-top: 10px; }
+.setchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.setchip { padding: 3px 10px; border-radius: 999px; background: var(--bg); font-variant-numeric: tabular-nums; font-size: .95rem; }
+
+/* Workout auswählen */
+.choice { display: flex; align-items: center; gap: 14px; padding: 16px; cursor: pointer; border-left: 6px solid transparent; }
+.choice input { position: absolute; opacity: 0; pointer-events: none; }
+.choice.selected { background: var(--bg); border-left-color: var(--accent); }
+.choice:focus-within { outline: 3px solid var(--accent); outline-offset: -3px; }
+.choice-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.choice-main strong { font-size: 1.2rem; }
+.start-bar { margin-top: 20px; }
+
+/* Übungsliste im laufenden Training */
+.exercise-list { list-style: none; margin: 0; padding: 0; }
+.exercise-row { display: flex; align-items: center; gap: 16px; min-height: 72px; padding: 12px 16px; text-decoration: none; }
+.exercise-row .no { width: 2ch; font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
+.exercise-row .name { flex: 1; font-size: 1.2rem; font-weight: 600; }
+.chip { padding: 4px 12px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: .9rem; }
+.chev { color: var(--muted); font-size: 1.6rem; }
+.finish { margin-top: 28px; text-align: center; }
+
+/* Übung: Satz eintragen */
+.hero { display: block; width: 100%; max-height: 240px; object-fit: cover; border-radius: 16px; margin-bottom: 16px; }
+.set-panel { background: var(--surface); border: 2px solid var(--ink); border-radius: 20px; padding: 18px; }
+.set-panel h2 { font-size: 1.6rem; margin-bottom: 12px; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field > label { display: block; color: var(--muted); font-size: .9rem; margin-bottom: 4px; }
+.field input { height: 78px; text-align: center; font-size: 2.6rem; font-weight: 700; font-variant-numeric: tabular-nums; padding: 0 4px; }
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.step-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.step {
+  min-height: 52px; border: 2px solid var(--line); border-radius: 12px;
+  background: var(--bg); color: var(--ink); font: inherit; font-size: 1.7rem; font-weight: 700; cursor: pointer;
+}
+.set-panel .btn { width: 100%; margin-top: 16px; min-height: 60px; font-size: 1.2rem; }
+
+/* Übung: bisherige Sätze nach Datum */
+.history { margin-top: 28px; }
+.history-day { margin-top: 16px; }
+.history-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.history-head h3 { font-size: 1.1rem; }
+.history-head .today-tag { padding: 2px 10px; border-radius: 999px; background: var(--ink); color: var(--bg); font-size: .85rem; font-weight: 700; }
+.set-row { gap: 10px; }
+.set-row .no { min-width: 4.2ch; color: var(--muted); }
+.set-row .result { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.set-row .time { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Workouts verwalten */
+.inline-form { display: flex; gap: 10px; flex-wrap: wrap; }
+.inline-form input { flex: 1; min-width: 180px; }
+.workout { margin-top: 28px; }
+.workout-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.workout-head h2 { flex: 1; font-size: 1.35rem; }
+.thumb { flex: none; width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--bg); }
+.add-exercise { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.add-exercise .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.add-exercise .btn { min-height: 48px; font-size: 1rem; }
+
+/* Schmale Handys: Leiste kompakter, damit beide Uhren Platz haben */
+@media (max-width: 480px) {
+  .topbar { padding: 8px 12px; gap: 8px; }
+  .brand { font-size: .95rem; }
+  .timers { gap: 12px; }
+  .timer-value { font-size: 1.2rem; }
+}
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+/* =====================================================================
+   Ergänzungen: Nachtragen, Tauschen, Notizen, Körpergewicht, Statistik
+   ===================================================================== */
+
+/* Startseite: zwei Textknöpfe nebeneinander */
+.home-actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+
+/* Training nachtragen: Datum und Uhrzeit */
+.fields.when { margin: 18px 0 8px; }
+
+/* Details eines Tages im Kalender */
+.setchip em { color: var(--muted); font-style: normal; }
+.detail-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+
+/* Statistik ganz unten auf der Startseite */
+.stats { margin-top: 32px; }
+.stats-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
+.stats-head h2 { font-size: 1.3rem; }
+.stats > p { margin-top: 10px; }
+.segmented { display: inline-flex; overflow: hidden; border: 2px solid var(--line); border-radius: 12px; }
+.seg { min-height: 44px; padding: 0 14px; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.seg.active { background: var(--ink); color: var(--bg); }
+.volume { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.row.total { background: var(--bg); }
+.block { display: block; }
+
+/* Übungsliste: Tauschen-Knopf an der Seite */
+.exercise-item { display: flex; align-items: stretch; }
+.exercise-item .exercise-row { flex: 1; min-width: 0; }
+.swap-link { display: flex; align-items: center; padding: 0 16px; border-left: 1px solid var(--line); color: var(--muted); font-weight: 600; text-decoration: none; }
+
+/* Übung: Titelzeile, Körpergewicht, Anmerkung */
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.title-row .btn { flex: none; }
+.set-panel .check { display: flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 14px; font-weight: 600; cursor: pointer; }
+.set-panel .check input { flex: none; width: 26px; height: 26px; accent-color: var(--accent); }
+.set-panel input[type=text] { margin-top: 8px; }
+.result-block { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.set-row .note { color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
+
+/* Vorschläge beim Eintippen einer Übung */
+.suggestions { display: flex; flex-wrap: wrap; gap: 8px; max-height: 168px; overflow-y: auto; padding: 2px; }
+.suggestion {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+  border: 2px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.suggestion .mini { width: 28px; height: 28px; margin-left: -8px; border-radius: 50%; object-fit: cover; }
+
+/* =====================================================================
+   Ergänzungen: Fortschrittsdiagramm, Reihenfolge, Export
+   ===================================================================== */
+
+.progress { margin-top: 28px; }
+.progress h3 { font-size: 1.05rem; margin-bottom: 6px; }
+.chart { display: block; width: 100%; height: auto; background: var(--surface); border-radius: 14px; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot { fill: var(--accent); }
+.chart-label { fill: var(--muted); font-size: 11px; }
+.icon-x:disabled { opacity: .25; cursor: default; }
+.data { margin-top: 24px; text-align: center; }
+.data .home-actions { margin: 10px 0; }
+.warn { color: #b4590a; font-weight: 600; }
+
+/* Anmeldeseite und Abmelden-Knopf */
+.login-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+.login-form .field input { height: 56px; text-align: left; font-size: 1.1rem; font-weight: 400; padding: 0 14px; }
+.login-error { color: var(--danger); font-weight: 600; }

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#c62f26">
+  <!-- Sicherheit: Nur eigene Dateien dürfen geladen werden, keine Verbindungen ins Internet. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; manifest-src 'self'; worker-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <!-- Damit iOS die Seite als eigene App ohne Safari-Leiste öffnet -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Training">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <title>Trainingstagebuch</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Obere Leiste: links der Name, rechts die Uhren (nur während eines Trainings) -->
+  <header class="topbar">
+    <a class="brand" href="#/">Trainingstagebuch</a>
+
+    <div class="timers" id="timers" hidden>
+      <div class="timer">
+        <span class="timer-value" id="timer-total">00:00:00</span>
+        <span class="timer-label">Training</span>
+      </div>
+      <div class="timer rest" id="timer-rest-box" hidden>
+        <span class="timer-value" id="timer-rest">00:00</span>
+        <span class="timer-label">Pause</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hier setzt app.js die jeweilige Ansicht ein -->
+  <main id="view"></main>
+
+  <noscript>Für das Trainingstagebuch muss JavaScript aktiviert sein.</noscript>
+  <script src="store.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
