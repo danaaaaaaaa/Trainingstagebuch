@@ -344,3 +344,19 @@ select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); borde
 .exercise-row .no { min-width: 2.4ch; width: auto; }
 .order-tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px; }
 .order-tools .btn { min-height: 40px; }
+
+/* Tortendiagramm der Muskelgruppen */
+.pie-chart { display: block; width: min(100%, 300px); margin: 8px auto 12px; overflow: visible; }
+.pie-slice { cursor: pointer; outline: none; transition: transform .15s; }
+.pie-slice path, .pie-slice circle { stroke: var(--surface); stroke-width: 2; }
+.pie-slice:focus-visible path, .pie-slice:focus-visible circle { stroke: var(--ink); stroke-width: 3; }
+.pie-slice.active path, .pie-slice.active circle { stroke: var(--ink); stroke-width: 2; }
+.pie-legend { list-style: none; margin: 0; padding: 0; }
+.legend-entry { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.legend-entry.active { background: var(--line); font-weight: 700; }
+.swatch { display: inline-block; flex: none; width: 14px; height: 14px; margin-right: 8px; border-radius: 4px; vertical-align: -1px; }
+.legend-entry .swatch { margin-right: 0; }
+.pie-detail { margin-top: 8px; padding: 12px 16px; border-radius: 14px; background: var(--surface); }
+.pie-facts dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 10px 0 0; }
+.pie-facts dt { color: var(--muted); }
+.pie-facts dd { margin: 0; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }

@@ -388,6 +388,90 @@ function buildDataSection() {
 
 /* ----- Ausführliche Auswertung: Diagramme und Übungen ----- */
 
+/** Tortendiagramm der Muskelgruppen (Anteil an allen Wiederholungen).
+ *  Ein Tipp auf ein Tortenstück oder einen Eintrag der Legende zeigt darunter Prozent,
+ *  Wiederholungen, Sätze und das bewegte Gewicht der Gruppe. */
+function buildMusclePie(muscles) {
+  const COLORS = ["#c62f26", "#0b7f8c", "#b4590a", "#6d44c4", "#1b7f4b", "#b02a7e",
+    "#2f5fd0", "#8a8f1a", "#d98c00", "#5a6b7b", "#e0607e", "#3aa6a0"];
+  const percentFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
+  const total = muscles.reduce((sum, m) => sum + m.reps, 0);
+  const R = 90, C = 100;                                          // Radius und Mittelpunkt (Bild 200 x 200)
+
+  // Farbe, Name und Anteil je Gruppe vorbereiten
+  let start = -Math.PI / 2;                                       // oben beginnen
+  const slices = muscles.map((m, i) => {
+    const share = m.reps / total;
+    const slice = {
+      ...m, share, start, end: start + share * 2 * Math.PI,
+      name: m.muscle || "Nicht zugeordnet",
+      color: m.muscle ? (COLORS[i] || `hsl(${(i * 47) % 360} 55% 45%)`) : "#9aa3ad",
+    };
+    start = slice.end;
+    return slice;
+  });
+
+  const point = (angle, radius = R) => [C + radius * Math.cos(angle), C + radius * Math.sin(angle)];
+  const shape = (slice) => {
+    if (slice.share > 0.9999) return svg("circle", { cx: C, cy: C, r: R });          // 100 %: ganzer Kreis
+    const [x1, y1] = point(slice.start), [x2, y2] = point(slice.end);
+    const large = slice.end - slice.start > Math.PI ? 1 : 0;
+    return svg("path", { d: `M ${C} ${C} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z` });
+  };
+
+  const detail = h("div", { class: "pie-detail", "aria-live": "polite" },
+    h("p", { class: "muted" }, "Tippe auf ein Stück der Torte oder auf einen Eintrag darunter."));
+  const parts = [];                                               // [Tortenstück, Legendeneintrag]
+  let selected = null;
+
+  const select = (slice) => {
+    selected = selected === slice ? null : slice;                 // nochmal tippen = abwählen
+    parts.forEach(([piece, entry, s]) => {
+      const active = s === selected;
+      piece.classList.toggle("active", active);
+      entry.classList.toggle("active", active);
+      entry.setAttribute("aria-pressed", String(active));
+      const mid = (s.start + s.end) / 2;                          // gewähltes Stück etwas herausschieben
+      piece.setAttribute("transform", active && slices.length > 1
+        ? `translate(${6 * Math.cos(mid)} ${6 * Math.sin(mid)})` : "");
+    });
+    detail.replaceChildren(selected
+      ? h("div", { class: "pie-facts" },
+          h("strong", {}, h("i", { class: "swatch", style: `background: ${selected.color}` }), selected.name),
+          h("dl", {},
+            h("dt", {}, "Anteil"), h("dd", {}, `${percentFormat.format(selected.share * 100)} %`),
+            h("dt", {}, "Wiederholungen"), h("dd", {}, volumeFormat.format(selected.reps)),
+            h("dt", {}, "Sätze"), h("dd", {}, volumeFormat.format(selected.sets)),
+            h("dt", {}, "Gesamtgewicht"), h("dd", {}, `${volumeFormat.format(selected.volume)} kg`)))
+      : h("p", { class: "muted" }, "Tippe auf ein Stück der Torte oder auf einen Eintrag darunter."));
+  };
+
+  const pieces = slices.map((slice) => {
+    const piece = svg("g", { class: "pie-slice", tabindex: 0, role: "button",
+        "aria-label": `${slice.name}: ${percentFormat.format(slice.share * 100)} Prozent` },
+      shape(slice));
+    piece.firstChild.setAttribute("fill", slice.color);
+    piece.addEventListener("click", () => select(slice));
+    piece.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(slice); }
+    });
+    return piece;
+  });
+
+  const legend = h("ul", { class: "pie-legend" }, slices.map((slice, i) => {
+    const entry = h("button", { type: "button", class: "legend-entry", "aria-pressed": "false", onclick: () => select(slice) },
+      h("i", { class: "swatch", style: `background: ${slice.color}` }),
+      h("span", { class: "grow" }, slice.name),
+      h("span", { class: "muted" }, `${percentFormat.format(slice.share * 100)} %`));
+    parts.push([pieces[i], entry, slice]);
+    return h("li", {}, entry);
+  }));
+
+  return h("div", { class: "pie" },
+    svg("svg", { viewBox: "-8 -8 216 216", class: "pie-chart", role: "group", "aria-label": "Anteile der Muskelgruppen" }, pieces),
+    legend, detail);
+}
+
 /** Zeigt unter der Statistik (im gleichen Zeitraum): bewegtes Gewicht im Zeitverlauf
  *  als Säulendiagramm und pro Übung Wiederholungen, Sätze und bewegtes Gewicht. */
 function buildAnalysis({ exercises, muscles, timeline }) {
@@ -419,9 +503,6 @@ function buildAnalysis({ exercises, muscles, timeline }) {
 
   // Pro Übung: Balken nach Wiederholungen
   const maxReps = Math.max(...exercises.map((e) => e.reps));
-  const totalReps = muscles.reduce((sum, m) => sum + m.reps, 0);
-  const maxMuscleReps = Math.max(...muscles.map((m) => m.reps));
-  const percent = (share) => Math.round(share * 100);
   return h("section", { class: "analysis", "aria-label": "Auswertung" },
     h("h2", {}, "Auswertung"),
     h("h3", {}, perDay ? "Bewegtes Gewicht pro Tag" : "Bewegtes Gewicht pro Monat"),
@@ -432,15 +513,8 @@ function buildAnalysis({ exercises, muscles, timeline }) {
       bars),
     h("p", { class: "muted small" }, `${plural(sessionsTotal, "Training", "Trainings")} in diesem Zeitraum.`),
 
-    h("h3", {}, "Muskelgruppen (Wiederholungen)"),
-    h("div", { class: "sheet" }, muscles.map((m) =>
-      h("div", { class: "ex-stat" },
-        h("div", { class: "ex-stat-head" },
-          h("strong", {}, m.muscle || "Nicht zugeordnet"),
-          h("span", {}, `${volumeFormat.format(m.reps)} Wdh. · ${percent(m.reps / totalReps)} %`)),
-        h("div", { class: "bar-track" }, h("i", { class: "bar-h", style: `width: ${Math.max(2, (m.reps / maxMuscleReps) * 100)}%` })),
-        h("span", { class: "muted small" },
-          `${plural(m.sets, "Satz", "Sätze")} · ${volumeFormat.format(m.volume)} kg bewegt`)))),
+    h("h3", {}, "Muskelgruppen (Anteil an den Wiederholungen)"),
+    buildMusclePie(muscles),
     h("p", { class: "muted small" },
       h("a", { href: "#/muscles" }, "Muskelgruppen der Übungen zuordnen"),
       muscles.some((m) => !m.muscle) ? " – einige Übungen sind noch nicht zugeordnet." : ""),
