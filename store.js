@@ -186,8 +186,23 @@ class Database {
     this.meta = read.meta || {};
     // "Beine" wurde in Oberschenkel vorne/hinten aufgeteilt: alte Zuordnung entfernen, neu zuordnen
     for (const row of this.tables.exercises) if (row.muscle === "Beine") row.muscle = null;
+    Database.normalizeSessionExercises(this.tables);
     this.images = Object.fromEntries(read.keys.map((key, i) => [key, read.values[i]]));
     this.dirtyImages.clear();
+  }
+
+  /** Gibt jeder Übung eines Trainings eine Position (0, 1, 2 ...). Ältere Daten hatten
+   *  noch keine und waren nach ihrer Nummer geordnet. Ebenso gibt es "superset" (null = keins). */
+  static normalizeSessionExercises(tables) {
+    const bySession = new Map();
+    for (const row of tables.session_exercises) {
+      if (!bySession.has(row.session_id)) bySession.set(row.session_id, []);
+      bySession.get(row.session_id).push(row);
+    }
+    for (const rows of bySession.values()) {
+      rows.sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || a.id - b.id);
+      rows.forEach((row, index) => { row.position = index; row.superset = row.superset ?? null; });
+    }
   }
 
   /** Vergibt die nächste freie Nummer einer Tabelle (Nummern werden nie doppelt vergeben). */
@@ -522,10 +537,8 @@ class SessionStore {
   /** Ein Training mit Übungen und Sätzen. */
   _full(session) {
     const t = this.db.tables;
-    const exercises = t.session_exercises
-      .filter((se) => se.session_id === session.id)
-      .sort((a, b) => a.id - b.id)
-      .map((se) => this.library.toExercise(t.exercises.find((e) => e.id === se.exercise_id)));
+    const exercises = this._rows(session.id)
+      .map((se) => ({ ...this.library.toExercise(t.exercises.find((e) => e.id === se.exercise_id)), superset: se.superset }));
     const sets = t.set_entries
       .filter((e) => e.session_id === session.id)
       .sort((a, b) => timeOf(a.logged_at) - timeOf(b.logged_at) || a.id - b.id)
@@ -770,9 +783,82 @@ class SessionStore {
     if (existing != null && t.session_exercises.some((se) => se.session_id === sessionId && se.exercise_id === existing)) {
       throw conflict("Diese Übung ist schon Teil des Trainings.");
     }
+    const position = this._rows(sessionId).length;
     t.session_exercises.push({
       id: this.db.nextId("session_exercises"), session_id: sessionId, exercise_id: this.library.resolve(parsed),
+      position, superset: null,
     });
+    await this.db.persist();
+    return this.get(sessionId);
+  }
+
+  // ---------- Reihenfolge und Supersätze ----------
+
+  /** Die Übungs-Zeilen eines Trainings in der aktuellen Reihenfolge. */
+  _rows(sessionId) {
+    return this.db.tables.session_exercises
+      .filter((se) => se.session_id === sessionId)
+      .sort((a, b) => a.position - b.position || a.id - b.id);
+  }
+
+  /** Teilt die Reihenfolge in Blöcke: ein Superset ist ein Block, jede andere Übung auch. */
+  static _blocks(rows) {
+    const blocks = [];
+    for (const row of rows) {
+      const last = blocks[blocks.length - 1];
+      if (row.superset != null && last && last[0].superset === row.superset) last.push(row);
+      else blocks.push([row]);
+    }
+    return blocks;
+  }
+
+  /** Schiebt eine Übung (bei einem Superset: den ganzen Superset) um eine Stelle
+   *  nach oben (-1) oder unten (1). */
+  async moveExercise(sessionId, exerciseId, data) {
+    const direction = data?.direction;
+    if (![-1, 1].includes(direction)) throw invalid();
+    this._editable(sessionId);
+    const blocks = SessionStore._blocks(this._rows(sessionId));
+    const index = blocks.findIndex((block) => block.some((row) => row.exercise_id === exerciseId));
+    if (index < 0) throw notFound("Diese Übung gehört nicht zu diesem Training.");
+    const target = index + direction;
+    if (target >= 0 && target < blocks.length) [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
+    blocks.flat().forEach((row, position) => { row.position = position; });
+    await this.db.persist();
+    return this.get(sessionId);
+  }
+
+  /** Verbindet eine Übung mit der nächsten zu einem Superset (linked = true) oder
+   *  löst die Verbindung zur nächsten wieder (linked = false). */
+  async linkExercise(sessionId, exerciseId, data) {
+    if (typeof data?.linked !== "boolean") throw invalid();
+    this._editable(sessionId);
+    const rows = this._rows(sessionId);
+    const index = rows.findIndex((row) => row.exercise_id === exerciseId);
+    if (index < 0) throw notFound("Diese Übung gehört nicht zu diesem Training.");
+    const row = rows[index];
+    const next = rows[index + 1];
+    if (!next) throw conflict("Es gibt keine nächste Übung.");
+
+    if (data.linked) {
+      // Beide in dieselbe Gruppe; bestehende Gruppen der beiden wachsen zusammen
+      const used = this.db.tables.session_exercises.filter((se) => se.session_id === sessionId).map((se) => se.superset ?? 0);
+      const group = row.superset ?? next.superset ?? Math.max(0, ...used) + 1;
+      const merge = new Set([row.superset, next.superset].filter((g) => g != null));
+      for (const other of rows) if (merge.has(other.superset)) other.superset = group;
+      row.superset = group;
+      next.superset = group;
+    } else if (row.superset != null && row.superset === next.superset) {
+      // Alles ab der nächsten Übung wird eine eigene Gruppe
+      const used = rows.map((r) => r.superset ?? 0);
+      const fresh = Math.max(0, ...used) + 1;
+      for (const other of rows.slice(index + 1)) if (other.superset === row.superset) other.superset = fresh;
+    }
+    // Eine Gruppe mit nur einer Übung ist kein Superset
+    for (const group of new Set(rows.map((r) => r.superset).filter((g) => g != null))) {
+      const members = rows.filter((r) => r.superset === group);
+      if (members.length < 2) members[0].superset = null;
+    }
     await this.db.persist();
     return this.get(sessionId);
   }
@@ -830,8 +916,9 @@ class SessionStore {
     t.workout_exercises
       .filter((l) => l.workout_id === workoutId)
       .sort((a, b) => a.position - b.position || a.id - b.id)
-      .forEach((l) => t.session_exercises.push({
+      .forEach((l, index) => t.session_exercises.push({
         id: this.db.nextId("session_exercises"), session_id: session.id, exercise_id: l.exercise_id,
+        position: index, superset: null,
       }));
     return session;
   }
@@ -945,7 +1032,8 @@ class Backup {
       custom_muscles: (r) => isText(r.name, 30) && r.name.trim().length > 0,
       workout_exercises: (r) => isInt(r.workout_id) && isInt(r.exercise_id) && isInt(r.position),
       sessions: (r) => isInt(r.workout_id) && isTime(r.started_at) && (r.ended_at == null || isTime(r.ended_at)),
-      session_exercises: (r) => isInt(r.session_id) && isInt(r.exercise_id),
+      session_exercises: (r) => isInt(r.session_id) && isInt(r.exercise_id)
+        && (r.position == null || isInt(r.position)) && (r.superset == null || isInt(r.superset)),
       body_weights: (r) => typeof r.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.day)
         && typeof r.kg === "number" && r.kg >= 20 && r.kg <= 500,
       set_entries: (r) => isInt(r.session_id) && isInt(r.exercise_id) && isInt(r.reps) && r.reps >= 1 && r.reps <= 1000
@@ -966,6 +1054,8 @@ class Backup {
       });
       tables.counters[name] = Math.max(0, ...ids) + 1;
     }
+
+    Database.normalizeSessionExercises(tables);         // fehlende Positionen ergänzen (ältere Sicherungen)
 
     // Muskelgruppen der Übungen: muss eine feste oder eigene Gruppe sein ("Beine" aus alten Sicherungen wird entfernt)
     const groups = new Set([...DEFAULT_MUSCLES, ...tables.custom_muscles.map((row) => row.name)]);
@@ -1043,6 +1133,8 @@ class LocalServer {
     ["DELETE", /^\/api\/sessions\/(\d+)$/,                       (q, body, id) => sessionStore.delete(id)],
     ["POST",   /^\/api\/sessions\/(\d+)\/finish$/,               (q, body, id) => sessionStore.finish(id)],
     ["POST",   /^\/api\/sessions\/(\d+)\/exercises\/(\d+)\/replace$/, (q, body, id, ex) => sessionStore.replaceExercise(id, ex, body)],
+    ["POST",   /^\/api\/sessions\/(\d+)\/exercises\/(\d+)\/move$/, (q, body, id, ex) => sessionStore.moveExercise(id, ex, body)],
+    ["POST",   /^\/api\/sessions\/(\d+)\/exercises\/(\d+)\/link$/, (q, body, id, ex) => sessionStore.linkExercise(id, ex, body)],
     ["POST",   /^\/api\/sessions\/(\d+)\/exercises$/,           (q, body, id) => sessionStore.addExercise(id, body)],
     ["POST",   /^\/api\/sessions\/(\d+)\/sets$/,                 (q, body, id) => sessionStore.addSet(id, body)],
     ["DELETE", /^\/api\/sessions\/(\d+)\/sets\/(\d+)$/,          (q, body, id, setId) => sessionStore.deleteSet(id, setId)],

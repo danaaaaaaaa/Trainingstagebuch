@@ -173,6 +173,7 @@ async function saveFile(name, text, type) {
    --------------------------------------------------------------------- */
 
 const state = {
+  editOrder: false,   // Reihenfolge/Supersätze bearbeiten (Training-Seite)
   session: null,                                  // laufendes Training (oder null)
   month: new Date(new Date().getFullYear(), new Date().getMonth(), 1),  // angezeigter Monat
   selectedDay: null,                              // im Kalender angetippter Tag
@@ -696,6 +697,27 @@ function buildSessionPage(session) {
   const counts = {};
   for (const set of session.sets) counts[set.exercise_id] = (counts[set.exercise_id] || 0) + 1;
 
+  // Änderungen sind nur bei laufenden und nachgetragenen Trainings möglich
+  const editable = live || session.backfilled;
+  const move = (ex, direction) => perform(async () => {
+    const updated = await Api.post(`/api/sessions/${session.id}/exercises/${ex.id}/move`, { direction });
+    if (live) state.session = updated;
+  });
+  const link = (ex, linked) => perform(async () => {
+    const updated = await Api.post(`/api/sessions/${session.id}/exercises/${ex.id}/link`, { linked });
+    if (live) state.session = updated;
+  });
+
+  // Nummern: normale Übungen 1, 2, 3 ...; Supersatz-Übungen 2a, 2b ...
+  const labels = [];
+  let number = 0, letter = 0;
+  session.exercises.forEach((ex, index) => {
+    const joined = index > 0 && ex.superset != null && session.exercises[index - 1].superset === ex.superset;
+    if (joined) letter += 1; else { number += 1; letter = 0; }
+    const inSuperset = ex.superset != null;
+    labels.push(inSuperset ? `${number}${String.fromCharCode(97 + letter)}` : String(number));
+  });
+
   const finish = () => {
     const message = session.sets.length
       ? (live ? "Workout jetzt beenden?" : "Fertig mit dem Nachtragen?")
@@ -713,17 +735,37 @@ function buildSessionPage(session) {
     live ? null : h("p", { class: "muted" },
       `Nachgetragen für ${formatDay(dayKey(new Date(session.started_at)))}, ${formatTime(session.started_at)} Uhr`),
     session.exercises.length
-      ? h("ol", { class: "exercise-list sheet" }, session.exercises.map((ex, index) =>
-          h("li", { class: "exercise-item" },
-            h("a", { class: "exercise-row", href: exerciseHref(session, ex.id) },
-              h("span", { class: "no" }, index + 1),
-              h("span", { class: "name" }, ex.name),
-              counts[ex.id]
-                ? h("span", { class: "chip" }, plural(counts[ex.id], "Satz", "Sätze"))
-                : h("span", { class: "chev" }, "›")),
-            h("a", { class: "swap-link", href: `#/swap/${session.id}/${ex.id}`, "aria-label": `${ex.name} tauschen` }, "Tauschen"))))
+      ? h("ol", { class: "exercise-list sheet" }, session.exercises.map((ex, index) => {
+          const before = session.exercises[index - 1];
+          const after = session.exercises[index + 1];
+          const joinedBefore = Boolean(before) && ex.superset != null && before.superset === ex.superset;
+          const joinedAfter = Boolean(after) && ex.superset != null && after.superset === ex.superset;
+          return h("li", { class: "exercise-entry" + (ex.superset != null ? " superset" : "") + (joinedBefore ? " cont" : "") },
+            h("div", { class: "exercise-item" },
+              h("a", { class: "exercise-row", href: exerciseHref(session, ex.id) },
+                h("span", { class: "no" }, labels[index]),
+                h("span", { class: "name" }, ex.name),
+                counts[ex.id]
+                  ? h("span", { class: "chip" }, plural(counts[ex.id], "Satz", "Sätze"))
+                  : h("span", { class: "chev" }, "›")),
+              editable ? h("a", { class: "swap-link", href: `#/swap/${session.id}/${ex.id}`, "aria-label": `${ex.name} tauschen` }, "Tauschen") : null),
+            editable && state.editOrder
+              ? h("div", { class: "order-tools" },
+                  h("button", { type: "button", class: "btn quiet", "aria-label": `${ex.name} nach oben`,
+                    disabled: index === 0, onclick: () => move(ex, -1) }, "↑"),
+                  h("button", { type: "button", class: "btn quiet", "aria-label": `${ex.name} nach unten`,
+                    onclick: () => move(ex, 1) }, "↓"),
+                  after ? h("button", { type: "button", class: "btn quiet", onclick: () => link(ex, !joinedAfter) },
+                    joinedAfter ? "Superset trennen" : "Mit nächster als Superset") : null)
+              : null);
+        }))
       : h("p", { class: "empty" }, "Dieses Workout hat keine Übungen. Füge unten eine hinzu."),
-    h("p", { class: "add-link" }, h("a", { class: "btn quiet", href: `#/add/${session.id}` }, "Übung hinzufügen")),
+    editable && session.exercises.length > 1
+      ? h("p", { class: "add-link" }, h("button", { type: "button", class: "btn quiet",
+          onclick: () => { state.editOrder = !state.editOrder; route(); } },
+          state.editOrder ? "Fertig mit Sortieren" : "Reihenfolge & Supersätze ändern"))
+      : null,
+    editable ? h("p", { class: "add-link" }, h("a", { class: "btn quiet", href: `#/add/${session.id}` }, "Übung hinzufügen")) : null,
     h("div", { class: "finish" },
       h("button", { type: "button", class: live ? "btn" : "btn primary", onclick: finish },
         live ? "Workout beenden" : "Fertig")),

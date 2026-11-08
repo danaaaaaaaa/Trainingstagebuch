@@ -336,3 +336,11 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 .muscle-field { display: block; margin: 10px 0; }
 select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: inherit; max-width: 100%; }
 .muscle-field select { display: block; width: 100%; margin-top: 4px; }
+
+/* Reihenfolge und Supersätze */
+.exercise-entry { display: block; }
+.exercise-entry.superset { border-left: 5px solid var(--accent); }
+.exercise-entry.cont { border-top: 1px dashed var(--line); }
+.exercise-row .no { min-width: 2.4ch; width: auto; }
+.order-tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px; }
+.order-tools .btn { min-height: 40px; }
