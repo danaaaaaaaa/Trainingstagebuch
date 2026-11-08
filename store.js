@@ -59,7 +59,8 @@ const isPlainText = (value, max) => typeof value === "string" && value.trim().le
    fest, damit die Auswertung übersichtlich bleibt.
    --------------------------------------------------------------------- */
 
-const MUSCLES = ["Brust", "Rücken", "Schultern", "Bizeps", "Trizeps", "Bauch", "Beine", "Gesäß", "Waden"];
+const DEFAULT_MUSCLES = ["Brust", "Rücken", "Schultern", "Bizeps", "Trizeps", "Bauch",
+  "Oberschenkel vorne", "Oberschenkel hinten", "Gesäß", "Waden"];
 
 /** Schlägt anhand des Namens eine Muskelgruppe vor ("Rudern am Kabelzug" -> Rücken).
  *  Das ist nur eine Vorauswahl, die man ändern kann; keine feste Zuordnung. */
@@ -71,7 +72,8 @@ class MuscleGuesser {
     ["Waden", ["wade", "calf"]],
     ["Gesäß", ["hip thrust", "glute", "gesäß", "gesaess"]],
     ["Bauch", ["bauch", "crunch", "plank", "sit-up", "situp", "leg raise", "beinheben", "russian twist"]],
-    ["Beine", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel", "adduktor", "abduktor"]],
+    ["Oberschenkel hinten", ["leg curl", "beinbeug", "hamstring", "rumän", "romanian", "good morning"]],
+    ["Oberschenkel vorne", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel", "adduktor", "abduktor"]],
     ["Trizeps", ["*trizeps", "tricep", "dips", "skull", "pushdown", "french press", "kickback"]],
     ["Bizeps", ["*bizeps", "bicep", "*curl", "hammer"]],
     ["Schultern", ["schulter", "shoulder", "military", "seitheben", "lateral raise", "frontheben", "face pull", "arnold", "overhead press"]],
@@ -136,7 +138,7 @@ class Images {
 
 class Database {
   static NAME = "trainingstagebuch";
-  static TABLES = ["workouts", "exercises", "workout_exercises", "sessions", "session_exercises", "set_entries", "body_weights"];
+  static TABLES = ["workouts", "exercises", "workout_exercises", "sessions", "session_exercises", "set_entries", "body_weights", "custom_muscles"];
 
   constructor() {
     this.tables = Database.emptyTables();
@@ -182,6 +184,8 @@ class Database {
     });
     this.tables = Object.assign(Database.emptyTables(), read.tables || {});
     this.meta = read.meta || {};
+    // "Beine" wurde in Oberschenkel vorne/hinten aufgeteilt: alte Zuordnung entfernen, neu zuordnen
+    for (const row of this.tables.exercises) if (row.muscle === "Beine") row.muscle = null;
     this.images = Object.fromEntries(read.keys.map((key, i) => [key, read.values[i]]));
     this.dirtyImages.clear();
   }
@@ -238,11 +242,59 @@ class Database {
    4. Fachlogik
    --------------------------------------------------------------------- */
 
+/** Alle wählbaren Muskelgruppen: die festen Gruppen plus eigene, selbst angelegte. */
+class MuscleCatalog {
+  constructor(db) {
+    this.db = db;
+  }
+
+  /** Liste für die Oberfläche: feste Gruppen zuerst, dann eigene (nur diese sind löschbar). */
+  getAll() {
+    return [
+      ...DEFAULT_MUSCLES.map((name) => ({ id: null, name, custom: false })),
+      ...this.db.tables.custom_muscles.map((row) => ({ id: row.id, name: row.name, custom: true })),
+    ];
+  }
+
+  names() {
+    return this.getAll().map((m) => m.name);
+  }
+
+  isValid(name) {
+    return this.names().includes(name);
+  }
+
+  /** Legt eine eigene Gruppe an. Der Name muss neu sein (Groß-/Kleinschreibung egal). */
+  async add(data) {
+    if (!isPlainText(data?.name, 30)) throw invalid("Bitte einen Namen eingeben (höchstens 30 Zeichen).");
+    const name = data.name.trim();
+    if (this.names().some((existing) => normalizeName(existing) === normalizeName(name))) {
+      throw conflict("Diese Muskelgruppe gibt es schon.");
+    }
+    this.db.tables.custom_muscles.push({ id: this.db.nextId("custom_muscles"), name });
+    await this.db.persist();
+    return null;
+  }
+
+  /** Löscht eine eigene Gruppe. Übungen, die ihr zugeordnet waren, sind danach wieder ohne Zuordnung. */
+  async remove(id) {
+    const rows = this.db.tables.custom_muscles;
+    const index = rows.findIndex((row) => row.id === id);
+    if (index < 0) throw notFound("Muskelgruppe nicht gefunden.");
+    const [removed] = rows.splice(index, 1);
+    for (const exercise of this.db.tables.exercises) if (exercise.muscle === removed.name) exercise.muscle = null;
+    await this.db.persist();
+    return null;
+  }
+}
+
+
 /** Die Bibliothek aller Übungen: Jede Übung gibt es nur einmal, egal in wie
  *  vielen Workouts sie vorkommt. Dadurch gehören Sätze und Verlauf zur Übung selbst. */
 class ExerciseLibrary {
-  constructor(db) {
+  constructor(db, muscles) {
     this.db = db;
+    this.muscles = muscles;
   }
 
   toExercise(row) {
@@ -259,7 +311,7 @@ class ExerciseLibrary {
   /** Ordnet einer Übung eine Muskelgruppe zu (oder null = keine). */
   async setMuscle(exerciseId, data) {
     const muscle = data?.muscle ?? null;
-    if (muscle !== null && !MUSCLES.includes(muscle)) throw invalid("Unbekannte Muskelgruppe.");
+    if (muscle !== null && !this.muscles.isValid(muscle)) throw invalid("Unbekannte Muskelgruppe.");
     const row = this.db.tables.exercises.find((e) => e.id === exerciseId);
     if (!row) throw notFound("Übung nicht gefunden.");
     row.muscle = muscle;
@@ -274,7 +326,7 @@ class ExerciseLibrary {
     if (byId && !Number.isInteger(c.exercise_id)) throw invalid();
     if (!byId && !isPlainText(c.name, 80)) throw invalid("Bitte eine Übung wählen oder einen Namen eingeben.");
     const image = c.image ? Images.check(c.image) : null;
-    if (c.muscle != null && !MUSCLES.includes(c.muscle)) throw invalid("Unbekannte Muskelgruppe.");
+    if (c.muscle != null && !this.muscles.isValid(c.muscle)) throw invalid("Unbekannte Muskelgruppe.");
     return { exercise_id: byId ? c.exercise_id : null, name: byId ? null : c.name.trim(), image, muscle: c.muscle ?? null };
   }
 
@@ -585,7 +637,7 @@ class SessionStore {
       group.volume += row.volume;
       perMuscle.set(name, group);
     }
-    const muscles = [...perMuscle.values()].sort((a, b) => b.sets - a.sets);
+    const muscles = [...perMuscle.values()].sort((a, b) => b.reps - a.reps);   // meiste Wiederholungen zuerst
     const exercises = [...perExercise.values()].sort((a, b) => b.reps - a.reps || a.exercise_name.localeCompare(b.exercise_name, "de"));
 
     // Zeitverlauf: Behälter ("Tage" oder "Monate") vorbereiten, damit auch leere Zeiträume auftauchen
@@ -889,7 +941,8 @@ class Backup {
     // Pro Tabelle: welche Felder müssen welchen Typ haben?
     const rules = {
       workouts: (r) => isText(r.name, 60) && /^#[0-9a-fA-F]{6}$/.test(r.color) && isText(r.created_at),
-      exercises: (r) => isText(r.name, 80) && (r.muscle == null || MUSCLES.includes(r.muscle)),
+      exercises: (r) => isText(r.name, 80),            // die Muskelgruppe wird weiter unten geprüft
+      custom_muscles: (r) => isText(r.name, 30) && r.name.trim().length > 0,
       workout_exercises: (r) => isInt(r.workout_id) && isInt(r.exercise_id) && isInt(r.position),
       sessions: (r) => isInt(r.workout_id) && isTime(r.started_at) && (r.ended_at == null || isTime(r.ended_at)),
       session_exercises: (r) => isInt(r.session_id) && isInt(r.exercise_id),
@@ -903,7 +956,7 @@ class Backup {
     const tables = { counters: {} };
     for (const name of Database.TABLES) {
       // Sicherungen aus der Zeit vor dem Körpergewicht haben diese Tabelle noch nicht
-      const rows = data.tables[name] ?? (name === "body_weights" ? [] : undefined);
+      const rows = data.tables[name] ?? (["body_weights", "custom_muscles"].includes(name) ? [] : undefined);
       if (!Array.isArray(rows)) fail();
       const ids = new Set();
       tables[name] = rows.map((row) => {
@@ -912,6 +965,13 @@ class Backup {
         return { ...row };
       });
       tables.counters[name] = Math.max(0, ...ids) + 1;
+    }
+
+    // Muskelgruppen der Übungen: muss eine feste oder eigene Gruppe sein ("Beine" aus alten Sicherungen wird entfernt)
+    const groups = new Set([...DEFAULT_MUSCLES, ...tables.custom_muscles.map((row) => row.name)]);
+    for (const exercise of tables.exercises) {
+      if (exercise.muscle === "Beine") exercise.muscle = null;
+      if (exercise.muscle != null && !groups.has(exercise.muscle)) fail();
     }
 
     // Alle Verweise müssen auf vorhandene Einträge zeigen
@@ -945,7 +1005,8 @@ class Backup {
    --------------------------------------------------------------------- */
 
 const db = new Database();
-const library = new ExerciseLibrary(db);
+const muscleCatalog = new MuscleCatalog(db);
+const library = new ExerciseLibrary(db, muscleCatalog);
 const workoutStore = new WorkoutStore(db, library);
 const sessionStore = new SessionStore(db, library);
 const bodyWeights = new BodyWeightStore(db);
@@ -963,6 +1024,9 @@ class LocalServer {
     ["POST",   /^\/api\/workouts\/(\d+)\/exercises$/,            (q, body, id) => workoutStore.addExercise(id, body)],
     ["POST",   /^\/api\/workouts\/(\d+)\/exercises\/(\d+)\/move$/, (q, body, id, ex) => workoutStore.moveExercise(id, ex, body)],
     ["DELETE", /^\/api\/workouts\/(\d+)\/exercises\/(\d+)$/,     (q, body, id, ex) => workoutStore.removeExercise(id, ex)],
+    ["GET",    /^\/api\/muscles$/,                              () => muscleCatalog.getAll()],
+    ["POST",   /^\/api\/muscles$/,                              (q, body) => muscleCatalog.add(body)],
+    ["DELETE", /^\/api\/muscles\/(\d+)$/,                       (q, body, id) => muscleCatalog.remove(id)],
     ["GET",    /^\/api\/bodyweight$/,                           () => bodyWeights.getAll()],
     ["POST",   /^\/api\/bodyweight$/,                           (q, body) => bodyWeights.save(body)],
     ["DELETE", /^\/api\/bodyweight\/(\d+)$/,                    (q, body, id) => bodyWeights.delete(id)],

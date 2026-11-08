@@ -418,8 +418,8 @@ function buildAnalysis({ exercises, muscles, timeline }) {
 
   // Pro Übung: Balken nach Wiederholungen
   const maxReps = Math.max(...exercises.map((e) => e.reps));
-  const totalSets = muscles.reduce((sum, m) => sum + m.sets, 0);
-  const maxSets = Math.max(...muscles.map((m) => m.sets));
+  const totalReps = muscles.reduce((sum, m) => sum + m.reps, 0);
+  const maxMuscleReps = Math.max(...muscles.map((m) => m.reps));
   const percent = (share) => Math.round(share * 100);
   return h("section", { class: "analysis", "aria-label": "Auswertung" },
     h("h2", {}, "Auswertung"),
@@ -431,15 +431,15 @@ function buildAnalysis({ exercises, muscles, timeline }) {
       bars),
     h("p", { class: "muted small" }, `${plural(sessionsTotal, "Training", "Trainings")} in diesem Zeitraum.`),
 
-    h("h3", {}, "Muskelgruppen (Sätze)"),
+    h("h3", {}, "Muskelgruppen (Wiederholungen)"),
     h("div", { class: "sheet" }, muscles.map((m) =>
       h("div", { class: "ex-stat" },
         h("div", { class: "ex-stat-head" },
           h("strong", {}, m.muscle || "Nicht zugeordnet"),
-          h("span", {}, `${percent(m.sets / totalSets)} %`)),
-        h("div", { class: "bar-track" }, h("i", { class: "bar-h", style: `width: ${Math.max(2, (m.sets / maxSets) * 100)}%` })),
+          h("span", {}, `${volumeFormat.format(m.reps)} Wdh. · ${percent(m.reps / totalReps)} %`)),
+        h("div", { class: "bar-track" }, h("i", { class: "bar-h", style: `width: ${Math.max(2, (m.reps / maxMuscleReps) * 100)}%` })),
         h("span", { class: "muted small" },
-          `${plural(m.sets, "Satz", "Sätze")} · ${volumeFormat.format(m.reps)} Wdh. · ${volumeFormat.format(m.volume)} kg bewegt`)))),
+          `${plural(m.sets, "Satz", "Sätze")} · ${volumeFormat.format(m.volume)} kg bewegt`)))),
     h("p", { class: "muted small" },
       h("a", { href: "#/muscles" }, "Muskelgruppen der Übungen zuordnen"),
       muscles.some((m) => !m.muscle) ? " – einige Übungen sind noch nicht zugeordnet." : ""),
@@ -901,16 +901,43 @@ function buildHistory(history, session) {
 /* ----- Muskelgruppen zuordnen ----- */
 
 async function renderMuscles() {
-  const library = await Api.get("/api/exercises");           // alphabetisch
+  const [library, groups] = await Promise.all([Api.get("/api/exercises"), Api.get("/api/muscles")]);
+  const custom = groups.filter((g) => g.custom);
+
+  const nameInput = h("input", {
+    type: "text", maxlength: 30, required: true, autocomplete: "off",
+    placeholder: "Neue Muskelgruppe, z. B. Unterarme", "aria-label": "Name der neuen Muskelgruppe",
+  });
+
   return [
     backLink("#/", "Kalender"),
     h("h1", {}, "Muskelgruppen"),
+
+    h("h2", {}, "Übungen zuordnen"),
     h("p", { class: "muted" }, "Ordne jede Übung ihrer Hauptmuskelgruppe zu. Die Auswertung auf der Startseite nutzt das."),
     library.length
       ? h("div", { class: "sheet" }, library.map((ex) => h("div", { class: "row" },
           h("span", { class: "grow" }, ex.name),
           muscleSelector(ex.muscle, (muscle) => perform(() => Api.patch(`/api/exercises/${ex.id}`, { muscle }))))))
       : h("p", { class: "empty" }, "Es gibt noch keine Übungen."),
+
+    h("h2", {}, "Eigene Muskelgruppen"),
+    h("form", {
+      class: "inline-form",
+      onsubmit: (event) => {
+        event.preventDefault();
+        perform(() => Api.post("/api/muscles", { name: nameInput.value }));
+      },
+    }, nameInput, h("button", { type: "submit", class: "btn primary" }, "Hinzufügen")),
+    custom.length
+      ? h("div", { class: "sheet" }, custom.map((g) => h("div", { class: "row" },
+          h("span", { class: "grow" }, g.name),
+          h("button", {
+            type: "button", class: "btn quiet danger",
+            onclick: () => confirm(`Muskelgruppe „${g.name}“ löschen? Zugeordnete Übungen sind danach wieder ohne Zuordnung.`)
+              && perform(() => Api.delete(`/api/muscles/${g.id}`)),
+          }, "Löschen"))))
+      : h("p", { class: "muted small" }, "Noch keine eigenen Gruppen. Die festen Gruppen lassen sich nicht ändern."),
   ];
 }
 
@@ -1043,11 +1070,14 @@ function moveButton(workout, exercise, direction, disabled) {
  *  Tippt man auf einen Vorschlag, wird genau diese Übung verwendet. Ein neuer
  *  Name (mit optionalem Bild) legt eine neue Übung an.
  *  onSubmit bekommt { exercise_id } oder { name, image }. */
+// Namen aller wählbaren Muskelgruppen (wird vor jeder Ansicht aktualisiert)
+let muscleNames = [];
+
 /** Auswahlfeld für die Muskelgruppe. current = bisherige Gruppe oder null. */
 function muscleSelector(current, onChange) {
   const select = h("select", { "aria-label": "Muskelgruppe", onchange: () => onChange?.(select.value || null) },
     h("option", { value: "" }, "keine Zuordnung"),
-    MUSCLES.map((name) => h("option", { value: name }, name)));
+    muscleNames.map((name) => h("option", { value: name }, name)));
   select.value = current || "";
   return select;
 }
@@ -1148,6 +1178,7 @@ async function route() {
   const id = ++renderId;
   try {
     state.session = await Api.get("/api/sessions/active");
+    muscleNames = (await Api.get("/api/muscles")).map((m) => m.name);
     Timers.update();
 
     const hash = location.hash || "#/";
