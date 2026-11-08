@@ -60,7 +60,7 @@ const isPlainText = (value, max) => typeof value === "string" && value.trim().le
    --------------------------------------------------------------------- */
 
 const DEFAULT_MUSCLES = ["Brust", "Rücken", "Schultern", "Bizeps", "Trizeps", "Bauch",
-  "Oberschenkel vorne", "Oberschenkel hinten", "Gesäß", "Waden"];
+  "Oberschenkelvorderseite", "Oberschenkelrückseite", "Gesäß", "Waden"];
 
 /** Schlägt anhand des Namens eine Muskelgruppe vor ("Rudern am Kabelzug" -> Rücken).
  *  Das ist nur eine Vorauswahl, die man ändern kann; keine feste Zuordnung. */
@@ -72,8 +72,8 @@ class MuscleGuesser {
     ["Waden", ["wade", "calf"]],
     ["Gesäß", ["hip thrust", "glute", "gesäß", "gesaess"]],
     ["Bauch", ["bauch", "crunch", "plank", "sit-up", "situp", "leg raise", "beinheben", "russian twist"]],
-    ["Oberschenkel hinten", ["leg curl", "beinbeug", "hamstring", "rumän", "romanian", "good morning"]],
-    ["Oberschenkel vorne", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel", "adduktor", "abduktor"]],
+    ["Oberschenkelrückseite", ["leg curl", "beinbeug", "hamstring", "rumän", "romanian", "good morning"]],
+    ["Oberschenkelvorderseite", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel", "adduktor", "abduktor"]],
     ["Trizeps", ["*trizeps", "tricep", "dips", "skull", "pushdown", "french press", "kickback"]],
     ["Bizeps", ["*bizeps", "bicep", "*curl", "hammer"]],
     ["Schultern", ["schulter", "shoulder", "military", "seitheben", "lateral raise", "frontheben", "face pull", "arnold", "overhead press"]],
@@ -184,11 +184,23 @@ class Database {
     });
     this.tables = Object.assign(Database.emptyTables(), read.tables || {});
     this.meta = read.meta || {};
-    // "Beine" wurde in Oberschenkel vorne/hinten aufgeteilt: alte Zuordnung entfernen, neu zuordnen
-    for (const row of this.tables.exercises) if (row.muscle === "Beine") row.muscle = null;
+    Database.migrateMuscles(this.tables);
     Database.normalizeSessionExercises(this.tables);
     this.images = Object.fromEntries(read.keys.map((key, i) => [key, read.values[i]]));
     this.dirtyImages.clear();
+  }
+
+  /** Ältere Namen der Muskelgruppen auf die heutigen umstellen.
+   *  "Beine" wurde aufgeteilt und lässt sich nicht automatisch zuordnen (danach: keine Zuordnung). */
+  static migrateMuscles(tables) {
+    const renamed = {
+      "Oberschenkel vorne": "Oberschenkelvorderseite",
+      "Oberschenkel hinten": "Oberschenkelrückseite",
+      "Beine": null,
+    };
+    for (const row of tables.exercises) {
+      if (Object.hasOwn(renamed, row.muscle)) row.muscle = renamed[row.muscle];
+    }
   }
 
   /** Gibt jeder Übung eines Trainings eine Position (0, 1, 2 ...). Ältere Daten hatten
@@ -679,6 +691,30 @@ class SessionStore {
     return { exercises, muscles, timeline: month != null ? timeline : timeline.slice(-24) };   // Gesamt: letzte 24 Monate
   }
 
+  /** Entwicklung der verwendeten Gewichte: pro Übung und Trainingstag das höchste Gewicht
+   *  (mit den Wiederholungen dazu). Nur Sätze mit Gewicht; älteste Tage zuerst. */
+  weightProgress() {
+    const t = this.db.tables;
+    const perExercise = new Map();
+    for (const entry of t.set_entries) {
+      if (!(entry.weight > 0)) continue;
+      const days = perExercise.get(entry.exercise_id) || new Map();
+      const day = entry.logged_at.slice(0, 10);
+      const best = days.get(day);
+      if (!best || entry.weight > best.weight || (entry.weight === best.weight && entry.reps > best.reps)) {
+        days.set(day, { day, weight: entry.weight, reps: entry.reps });
+      }
+      perExercise.set(entry.exercise_id, days);
+    }
+    return [...perExercise.entries()]
+      .map(([exerciseId, days]) => ({
+        exercise_id: exerciseId,
+        exercise_name: t.exercises.find((e) => e.id === exerciseId).name,
+        points: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
+      }))
+      .sort((a, b) => b.points.length - a.points.length || a.exercise_name.localeCompare(b.exercise_name, "de"));
+  }
+
   /** Alle Sätze als CSV-Text (für Excel: Semikolon-getrennt). Neueste zuerst. */
   exportCsv() {
     const t = this.db.tables;
@@ -1055,12 +1091,12 @@ class Backup {
       tables.counters[name] = Math.max(0, ...ids) + 1;
     }
 
+    Database.migrateMuscles(tables);
     Database.normalizeSessionExercises(tables);         // fehlende Positionen ergänzen (ältere Sicherungen)
 
     // Muskelgruppen der Übungen: muss eine feste oder eigene Gruppe sein ("Beine" aus alten Sicherungen wird entfernt)
     const groups = new Set([...DEFAULT_MUSCLES, ...tables.custom_muscles.map((row) => row.name)]);
     for (const exercise of tables.exercises) {
-      if (exercise.muscle === "Beine") exercise.muscle = null;
       if (exercise.muscle != null && !groups.has(exercise.muscle)) fail();
     }
 
@@ -1125,6 +1161,7 @@ class LocalServer {
     ["GET",    /^\/api\/exercises\/(\d+)\/history$/,             (q, body, id) => sessionStore.exerciseHistory(id)],
     ["GET",    /^\/api\/sessions\/active$/,                      () => sessionStore.getActive()],
     ["GET",    /^\/api\/sessions\/stats$/,                       (q) => sessionStore.stats(q.get("month"))],
+    ["GET",    /^\/api\/sessions\/weights$/,                    () => sessionStore.weightProgress()],
     ["GET",    /^\/api\/sessions\/analysis$/,                   (q) => sessionStore.analysis(q.get("month"))],
     ["GET",    /^\/api\/sessions$/,                              (q) => sessionStore.getMonth(q.get("month"))],
     ["POST",   /^\/api\/sessions$/,                              (q, body) => sessionStore.start(body)],

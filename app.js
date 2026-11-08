@@ -173,6 +173,8 @@ async function saveFile(name, text, type) {
    --------------------------------------------------------------------- */
 
 const state = {
+  openFolds: new Set(),   // geöffnete Bereiche der Startseite
+  progressExercise: null, // gewählte Übung bei der Gewichtsentwicklung
   editOrder: false,   // Reihenfolge/Supersätze bearbeiten (Training-Seite)
   session: null,                                  // laufendes Training (oder null)
   month: new Date(new Date().getFullYear(), new Date().getMonth(), 1),  // angezeigter Monat
@@ -243,16 +245,35 @@ const noWorkoutsHint = () => [
 
 /* ----- Startseite: Kalender ----- */
 
+/* ----- Aufklappbare Bereiche der Startseite ----- */
+
+/** Ein Bereich, der sich per Tipp auf die Titelzeile auf- und zuklappen lässt.
+ *  Welche Bereiche offen sind, merkt sich die App, solange sie läuft. */
+function fold(id, title, content, { hint = null, badge = null } = {}) {
+  const el = h("details", { class: "fold" },
+    h("summary", {},
+      h("span", { class: "fold-title" }, title),
+      hint ? h("span", { class: "fold-hint" }, hint) : null,
+      badge ? h("span", { class: "fold-badge" }, badge) : null),
+    h("div", { class: "fold-body" }, content));
+  el.open = state.openFolds.has(id);
+  el.addEventListener("toggle", () => {
+    if (el.open) state.openFolds.add(id); else state.openFolds.delete(id);
+  });
+  return el;
+}
+
 async function renderHome() {
   const year = state.month.getFullYear();
   const month = state.month.getMonth();
   const monthKey = `${year}-${pad(month + 1)}`;
 
-  const [sessions, stats, analysis, bodyWeight] = await Promise.all([
+  const [sessions, stats, analysis, bodyWeight, weights] = await Promise.all([
     Api.get(`/api/sessions?month=${monthKey}`),
     Api.get(state.statsAll ? "/api/sessions/stats" : `/api/sessions/stats?month=${monthKey}`),
     Api.get(state.statsAll ? "/api/sessions/analysis" : `/api/sessions/analysis?month=${monthKey}`),
     Api.get("/api/bodyweight"),
+    Api.get("/api/sessions/weights"),
   ]);
   const byDay = groupBy(sessions, (s) => dayKey(new Date(s.started_at)));   // neueste zuerst
   const selected = state.selectedDay && byDay[state.selectedDay] ? state.selectedDay : null;
@@ -275,10 +296,13 @@ async function renderHome() {
     buildCalendar(year, month, byDay),
     buildLegend(sessions),
     selected ? buildDayDetail(selected, details) : null,
-    buildStats(stats),
-    buildAnalysis(analysis),
-    buildBodyWeight(bodyWeight),
-    buildDataSection(),
+    h("div", { class: "folds" },
+      fold("stats", "Statistik & Auswertung", [buildStats(stats), buildAnalysis(analysis)]),
+      fold("weights", "Gewichtsentwicklung", buildWeightProgress(weights), { hint: "pro Übung" }),
+      fold("bodyweight", "Körpergewicht", buildBodyWeight(bodyWeight),
+        { hint: bodyWeight.length ? `${numberFormat.format(bodyWeight[0].kg)} kg` : "optional" }),
+      fold("data", "Daten & Sicherung", buildDataSection(),
+        { badge: backupDue() ? "Sicherung fällig" : null })),
   ];
 }
 
@@ -304,7 +328,6 @@ function buildBodyWeight(entries) {            // entries: neueste zuerst
   }, kgInput, dateInput, h("button", { type: "submit", class: "btn primary" }, "Eintragen"));
 
   return h("section", { class: "bodyweight", "aria-label": "Körpergewicht" },
-    h("h2", {}, "Körpergewicht"),
     entries.length
       ? h("p", { class: "muted" }, `Zuletzt: ${numberFormat.format(entries[0].kg)} kg am ${formatDay(entries[0].day)}`)
       : h("p", { class: "muted" }, "Optional: Trage dein Gewicht ein, um den Verlauf zu sehen."),
@@ -325,32 +348,95 @@ function buildBodyWeight(entries) {            // entries: neueste zuerst
 /** Liniendiagramm des Körpergewichts (älteste Werte links). Erst ab zwei Einträgen. */
 function buildWeightChart(entries) {
   if (entries.length < 2) return null;
-  const points = [...entries].reverse().slice(-60);               // höchstens die letzten 60 Einträge
+  const points = [...entries].reverse().slice(-60).map((p) => ({ day: p.day, value: p.kg }));   // letzte 60 Einträge
+  return buildTrendChart(points, `Körpergewicht von ${numberFormat.format(points[0].value)} auf ${numberFormat.format(points[points.length - 1].value)} kg`);
+}
+
+/** Allgemeines Liniendiagramm über die Zeit. points: [{ day: "2026-11-08", value }], älteste zuerst.
+ *  Mit onPick(point) sind die Punkte antippbar (auch per Tastatur). */
+function buildTrendChart(points, ariaLabel, onPick) {
   const W = 320, H = 150, left = 40, right = 12, top = 14, bottom = 28;
-  const low = Math.min(...points.map((p) => p.kg));
-  const high = Math.max(...points.map((p) => p.kg));
+  const low = Math.min(...points.map((p) => p.value));
+  const high = Math.max(...points.map((p) => p.value));
   const span = high - low || 1;
-  const x = (i) => left + (i * (W - left - right)) / (points.length - 1);
+  const x = (i) => (points.length === 1 ? (left + W - right) / 2 : left + (i * (W - left - right)) / (points.length - 1));
   const y = (v) => (high === low ? (top + H - bottom) / 2 : H - bottom - ((v - low) / span) * (H - top - bottom));
   const shortDay = (key) => { const [, m, d] = key.split("-"); return `${d}.${m}.`; };
   const label = (text, attrs) => { const el = svg("text", { class: "chart-label", ...attrs }); el.textContent = text; return el; };
 
-  return svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
-      "aria-label": `Körpergewicht von ${numberFormat.format(points[0].kg)} auf ${numberFormat.format(points[points.length - 1].kg)} kg` },
+  const dots = points.map((p, i) => {
+    const dot = svg("circle", { class: "chart-dot", cx: x(i), cy: y(p.value), r: onPick ? 5 : 3 });
+    if (onPick) {
+      dot.setAttribute("tabindex", "0");
+      dot.setAttribute("role", "button");
+      dot.setAttribute("aria-label", `${shortDay(p.day)}: ${numberFormat.format(p.value)}`);
+      dot.addEventListener("click", () => onPick(p));
+      dot.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onPick(p); }
+      });
+    }
+    return dot;
+  });
+
+  return svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": ariaLabel },
     svg("line", { class: "chart-grid", x1: left, x2: W - right, y1: y(high), y2: y(high) }),
     svg("line", { class: "chart-grid", x1: left, x2: W - right, y1: y(low), y2: y(low) }),
     label(numberFormat.format(high), { x: left - 6, y: y(high) + 4, "text-anchor": "end" }),
     high === low ? null : label(numberFormat.format(low), { x: left - 6, y: y(low) + 4, "text-anchor": "end" }),
-    svg("polyline", { class: "chart-line", points: points.map((p, i) => `${x(i)},${y(p.kg)}`).join(" ") }),
-    points.map((p, i) => svg("circle", { class: "chart-dot", cx: x(i), cy: y(p.kg), r: 3 })),
+    points.length > 1
+      ? svg("polyline", { class: "chart-line", points: points.map((p, i) => `${x(i)},${y(p.value)}`).join(" ") })
+      : null,
+    dots,
     label(shortDay(points[0].day), { x: left, y: H - 8, "text-anchor": "start" }),
-    label(shortDay(points[points.length - 1].day), { x: W - right, y: H - 8, "text-anchor": "end" }));
+    points.length > 1 ? label(shortDay(points[points.length - 1].day), { x: W - right, y: H - 8, "text-anchor": "end" }) : null);
+}
+
+/* ----- Gewichtsentwicklung pro Übung ----- */
+
+/** Wähle eine Übung: Das Diagramm zeigt pro Trainingstag das höchste verwendete Gewicht.
+ *  Ein Tipp auf einen Punkt zeigt Datum, Gewicht und Wiederholungen. */
+function buildWeightProgress(list) {
+  if (!list.length) {
+    return h("p", { class: "empty" }, "Sobald du Sätze mit Gewicht einträgst, siehst du hier die Entwicklung pro Übung.");
+  }
+  const current = list.find((item) => item.exercise_id === state.progressExercise) || list[0];
+  const detail = h("p", { class: "muted", "aria-live": "polite" });
+  const showPoint = (p) => {
+    detail.textContent = `${formatDay(p.day)}: ${numberFormat.format(p.weight)} kg × ${p.reps} Wdh.`;
+  };
+
+  const select = h("select", {
+    "aria-label": "Übung wählen", class: "progress-select",
+    onchange: () => { state.progressExercise = Number(select.value); route(); },
+  }, list.map((item) => h("option", { value: item.exercise_id }, item.exercise_name)));
+  select.value = String(current.exercise_id);
+
+  const first = current.points[0];
+  const last = current.points[current.points.length - 1];
+  const change = last.weight - first.weight;
+  showPoint(last);
+
+  return h("div", { class: "weight-progress" },
+    select,
+    buildTrendChart(current.points.map((p) => ({ ...p, value: p.weight })),
+      `Gewicht für ${current.exercise_name}, zuletzt ${numberFormat.format(last.weight)} kg`, showPoint),
+    detail,
+    h("p", { class: "muted small" },
+      current.points.length > 1
+        ? `Von ${numberFormat.format(first.weight)} kg auf ${numberFormat.format(last.weight)} kg (${change >= 0 ? "+" : "−"}${numberFormat.format(Math.abs(change))} kg) in ${plural(current.points.length, "Training", "Trainings")}. Pro Tag zählt das höchste Gewicht.`
+        : "Bisher gibt es nur ein Training mit Gewicht. Pro Tag zählt das höchste Gewicht."));
 }
 
 /* ----- Daten: CSV-Export und Sicherung ----- */
 
 /** Zeigt, wann zuletzt gesichert wurde, und bietet Export, Sicherung und Wiederherstellung an.
  *  Die Daten liegen nur auf diesem Handy, deshalb erinnert die App an Sicherungen. */
+/** Wurde nie oder vor mehr als 14 Tagen gesichert? */
+function backupDue() {
+  const last = backup.lastBackupAt();
+  return !last || (Date.now() - Date.parse(last)) / 86400000 > 14;
+}
+
 function buildDataSection() {
   const last = backup.lastBackupAt();
   const days = last ? Math.floor((Date.now() - Date.parse(last)) / 86400000) : null;
@@ -504,7 +590,6 @@ function buildAnalysis({ exercises, muscles, timeline }) {
   // Pro Übung: Balken nach Wiederholungen
   const maxReps = Math.max(...exercises.map((e) => e.reps));
   return h("section", { class: "analysis", "aria-label": "Auswertung" },
-    h("h2", {}, "Auswertung"),
     h("h3", {}, perDay ? "Bewegtes Gewicht pro Tag" : "Bewegtes Gewicht pro Monat"),
     svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
         "aria-label": `Bewegtes Gewicht, höchster Wert ${volumeFormat.format(max)} kg` },
@@ -641,7 +726,7 @@ function buildStats(rows) {
 
   return h("section", { class: "stats", "aria-label": "Statistik" },
     h("div", { class: "stats-head" },
-      h("h2", {}, "Statistik"),
+      h("h3", {}, "Statistik"),
       h("div", { class: "segmented" }, switchButton("Dieser Monat", false), switchButton("Gesamt", true))),
     rows.length
       ? h("div", { class: "sheet" },

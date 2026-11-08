@@ -360,3 +360,26 @@ select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); borde
 .pie-facts dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 10px 0 0; }
 .pie-facts dt { color: var(--muted); }
 .pie-facts dd { margin: 0; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Aufklappbare Bereiche der Startseite */
+.folds { display: grid; gap: 10px; margin-top: 28px; }
+.fold { border-radius: 16px; background: var(--surface); overflow: hidden; box-shadow: 0 1px 0 var(--line); }
+.fold > summary { display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 0 16px; cursor: pointer; list-style: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::after { content: "›"; margin-left: auto; font-size: 1.6rem; line-height: 1; color: var(--muted); transition: transform .2s; }
+.fold[open] > summary::after { transform: rotate(90deg); }
+.fold[open] > summary { border-bottom: 1px solid var(--line); box-shadow: inset 4px 0 0 var(--accent); }
+.fold-title { font-size: 1.1rem; font-weight: 700; }
+.fold-hint { color: var(--muted); font-size: .9rem; }
+.fold-badge { padding: 3px 10px; border-radius: 999px; background: var(--rest); color: var(--bar); font-size: .8rem; font-weight: 700; }
+.fold-body { padding: 8px 16px 18px; }
+.fold-body .stats, .fold-body .analysis, .fold-body .bodyweight, .fold-body .data { margin-top: 12px; }
+.fold-body .sheet { background: var(--bg); }
+.fold-body .stats-head h3 { font-size: 1.1rem; }
+.progress-select { width: 100%; margin: 10px 0 4px; }
+.chart-dot[role="button"] { cursor: pointer; }
+
+/* Startseite: die zwei Zusatzknöpfe nebeneinander */
+.home-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0 8px; }
+.home-actions .btn { justify-content: center; text-align: center; background: var(--surface); border-radius: 14px; }
+.data .home-actions { grid-template-columns: 1fr; }
