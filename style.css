@@ -312,3 +312,27 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 .login-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
 .login-form .field input { height: 56px; text-align: left; font-size: 1.1rem; font-weight: 400; padding: 0 14px; }
 .login-error { color: var(--danger); font-weight: 600; }
+
+/* Auswertung und Übung hinzufügen */
+.analysis { margin-top: 32px; }
+.analysis h2 { font-size: 1.3rem; margin-bottom: 4px; }
+.analysis h3 { font-size: 1rem; margin: 18px 0 8px; }
+.bar-v { fill: var(--accent); }
+.ex-stat { padding: 12px 16px; border-top: 1px solid var(--line); }
+.ex-stat:first-child { border-top: 0; }
+.ex-stat-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.bar-track { height: 8px; border-radius: 4px; background: var(--line); margin-bottom: 6px; overflow: hidden; }
+.bar-h { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.add-link { margin-top: 16px; text-align: center; }
+
+/* Körpergewicht */
+.bodyweight { margin-top: 32px; }
+.bodyweight h2 { font-size: 1.3rem; margin-bottom: 4px; }
+.weight-form { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+.weight-form input { flex: 1 1 90px; min-width: 0; }
+.bodyweight .sheet { margin-top: 14px; }
+
+/* Muskelgruppen */
+.muscle-field { display: block; margin: 10px 0; }
+select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: inherit; max-width: 100%; }
+.muscle-field select { display: block; width: 100%; margin-top: 4px; }

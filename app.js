@@ -44,7 +44,7 @@ function h(tag, attrs = {}, ...children) {
 function svg(tag, attrs = {}, ...children) {
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
   for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
-  for (const child of children.flat()) if (child != null) el.append(child);
+  for (const child of children.flat(Infinity)) if (child != null && child !== false) el.append(child);
   return el;
 }
 
@@ -247,9 +247,11 @@ async function renderHome() {
   const month = state.month.getMonth();
   const monthKey = `${year}-${pad(month + 1)}`;
 
-  const [sessions, stats] = await Promise.all([
+  const [sessions, stats, analysis, bodyWeight] = await Promise.all([
     Api.get(`/api/sessions?month=${monthKey}`),
     Api.get(state.statsAll ? "/api/sessions/stats" : `/api/sessions/stats?month=${monthKey}`),
+    Api.get(state.statsAll ? "/api/sessions/analysis" : `/api/sessions/analysis?month=${monthKey}`),
+    Api.get("/api/bodyweight"),
   ]);
   const byDay = groupBy(sessions, (s) => dayKey(new Date(s.started_at)));   // neueste zuerst
   const selected = state.selectedDay && byDay[state.selectedDay] ? state.selectedDay : null;
@@ -273,8 +275,75 @@ async function renderHome() {
     buildLegend(sessions),
     selected ? buildDayDetail(selected, details) : null,
     buildStats(stats),
+    buildAnalysis(analysis),
+    buildBodyWeight(bodyWeight),
     buildDataSection(),
   ];
+}
+
+/* ----- Körpergewicht (optional) ----- */
+
+/** Eingabe des Körpergewichts, Verlauf als Liniendiagramm und die letzten Einträge.
+ *  Wer das Gewicht nicht erfassen möchte, ignoriert den Bereich einfach. */
+function buildBodyWeight(entries) {            // entries: neueste zuerst
+  const today = dayKey(new Date());
+  const kgInput = h("input", {
+    type: "number", inputmode: "decimal", step: "0.1", min: 20, max: 500,
+    placeholder: "kg", "aria-label": "Körpergewicht in kg", required: true,
+  });
+  const dateInput = h("input", { type: "date", value: today, max: today, "aria-label": "Datum", required: true });
+
+  const form = h("form", {
+    class: "weight-form",
+    onsubmit: (event) => {
+      event.preventDefault();
+      const kg = parseFloat(kgInput.value.replace(",", "."));
+      perform(() => Api.post("/api/bodyweight", { kg, date: dateInput.value }));
+    },
+  }, kgInput, dateInput, h("button", { type: "submit", class: "btn primary" }, "Eintragen"));
+
+  return h("section", { class: "bodyweight", "aria-label": "Körpergewicht" },
+    h("h2", {}, "Körpergewicht"),
+    entries.length
+      ? h("p", { class: "muted" }, `Zuletzt: ${numberFormat.format(entries[0].kg)} kg am ${formatDay(entries[0].day)}`)
+      : h("p", { class: "muted" }, "Optional: Trage dein Gewicht ein, um den Verlauf zu sehen."),
+    form,
+    buildWeightChart(entries),
+    entries.length
+      ? h("div", { class: "sheet" }, entries.slice(0, 5).map((entry) =>
+          h("div", { class: "row" },
+            h("span", { class: "grow" }, formatDay(entry.day)),
+            h("strong", {}, `${numberFormat.format(entry.kg)} kg`),
+            h("button", {
+              type: "button", class: "btn quiet", "aria-label": `Eintrag vom ${formatDay(entry.day)} löschen`,
+              onclick: () => confirm("Eintrag löschen?") && perform(() => Api.delete(`/api/bodyweight/${entry.id}`)),
+            }, "Löschen"))))
+      : null);
+}
+
+/** Liniendiagramm des Körpergewichts (älteste Werte links). Erst ab zwei Einträgen. */
+function buildWeightChart(entries) {
+  if (entries.length < 2) return null;
+  const points = [...entries].reverse().slice(-60);               // höchstens die letzten 60 Einträge
+  const W = 320, H = 150, left = 40, right = 12, top = 14, bottom = 28;
+  const low = Math.min(...points.map((p) => p.kg));
+  const high = Math.max(...points.map((p) => p.kg));
+  const span = high - low || 1;
+  const x = (i) => left + (i * (W - left - right)) / (points.length - 1);
+  const y = (v) => (high === low ? (top + H - bottom) / 2 : H - bottom - ((v - low) / span) * (H - top - bottom));
+  const shortDay = (key) => { const [, m, d] = key.split("-"); return `${d}.${m}.`; };
+  const label = (text, attrs) => { const el = svg("text", { class: "chart-label", ...attrs }); el.textContent = text; return el; };
+
+  return svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
+      "aria-label": `Körpergewicht von ${numberFormat.format(points[0].kg)} auf ${numberFormat.format(points[points.length - 1].kg)} kg` },
+    svg("line", { class: "chart-grid", x1: left, x2: W - right, y1: y(high), y2: y(high) }),
+    svg("line", { class: "chart-grid", x1: left, x2: W - right, y1: y(low), y2: y(low) }),
+    label(numberFormat.format(high), { x: left - 6, y: y(high) + 4, "text-anchor": "end" }),
+    high === low ? null : label(numberFormat.format(low), { x: left - 6, y: y(low) + 4, "text-anchor": "end" }),
+    svg("polyline", { class: "chart-line", points: points.map((p, i) => `${x(i)},${y(p.kg)}`).join(" ") }),
+    points.map((p, i) => svg("circle", { class: "chart-dot", cx: x(i), cy: y(p.kg), r: 3 })),
+    label(shortDay(points[0].day), { x: left, y: H - 8, "text-anchor": "start" }),
+    label(shortDay(points[points.length - 1].day), { x: W - right, y: H - 8, "text-anchor": "end" }));
 }
 
 /* ----- Daten: CSV-Export und Sicherung ----- */
@@ -314,6 +383,76 @@ function buildDataSection() {
       await saveFile("trainingstagebuch.csv", "\ufeff" + sessionStore.exportCsv(), "text/csv");
     }) }, "Alle Sätze als CSV exportieren")),
     fileInput);
+}
+
+/* ----- Ausführliche Auswertung: Diagramme und Übungen ----- */
+
+/** Zeigt unter der Statistik (im gleichen Zeitraum): bewegtes Gewicht im Zeitverlauf
+ *  als Säulendiagramm und pro Übung Wiederholungen, Sätze und bewegtes Gewicht. */
+function buildAnalysis({ exercises, muscles, timeline }) {
+  if (!exercises.length) return null;
+  const perDay = !state.statsAll;
+  const label = (text, attrs) => { const el = svg("text", { class: "chart-label", ...attrs }); el.textContent = text; return el; };
+  const labelOf = (key) => {                                    // Beschriftung unter der Säule
+    const [year, month, day] = key.split("-");
+    return perDay ? String(Number(day)) : `${month}/${year.slice(2)}`;
+  };
+
+  // Säulendiagramm: bewegtes Gewicht pro Tag (Monat) bzw. pro Monat (Gesamt)
+  const W = 320, H = 160, left = 8, right = 8, top = 22, bottom = 26;
+  const max = Math.max(...timeline.map((t) => t.volume)) || 1;
+  const slot = (W - left - right) / timeline.length;
+  const barWidth = Math.max(2, slot * 0.7);
+  const labelStep = Math.ceil(timeline.length / (perDay ? 8 : 6));    // nicht jede Säule beschriften
+  const bars = timeline.map((t, i) => {
+    const height = (t.volume / max) * (H - top - bottom);
+    return [
+      t.volume > 0 ? svg("rect", {
+        class: "bar-v", x: left + i * slot + (slot - barWidth) / 2, y: H - bottom - height,
+        width: barWidth, height, rx: 2 },
+        svg("title", {}, `${labelOf(t.key)}: ${volumeFormat.format(t.volume)} kg`)) : null,
+      i % labelStep === 0 ? label(labelOf(t.key), { x: left + i * slot + slot / 2, y: H - 8, "text-anchor": "middle" }) : null,
+    ];
+  });
+  const sessionsTotal = timeline.reduce((sum, t) => sum + t.sessions, 0);
+
+  // Pro Übung: Balken nach Wiederholungen
+  const maxReps = Math.max(...exercises.map((e) => e.reps));
+  const totalSets = muscles.reduce((sum, m) => sum + m.sets, 0);
+  const maxSets = Math.max(...muscles.map((m) => m.sets));
+  const percent = (share) => Math.round(share * 100);
+  return h("section", { class: "analysis", "aria-label": "Auswertung" },
+    h("h2", {}, "Auswertung"),
+    h("h3", {}, perDay ? "Bewegtes Gewicht pro Tag" : "Bewegtes Gewicht pro Monat"),
+    svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
+        "aria-label": `Bewegtes Gewicht, höchster Wert ${volumeFormat.format(max)} kg` },
+      svg("line", { class: "chart-grid", x1: left, x2: W - right, y1: H - bottom, y2: H - bottom }),
+      label(`max. ${volumeFormat.format(max)} kg`, { x: left, y: 12, "text-anchor": "start" }),
+      bars),
+    h("p", { class: "muted small" }, `${plural(sessionsTotal, "Training", "Trainings")} in diesem Zeitraum.`),
+
+    h("h3", {}, "Muskelgruppen (Sätze)"),
+    h("div", { class: "sheet" }, muscles.map((m) =>
+      h("div", { class: "ex-stat" },
+        h("div", { class: "ex-stat-head" },
+          h("strong", {}, m.muscle || "Nicht zugeordnet"),
+          h("span", {}, `${percent(m.sets / totalSets)} %`)),
+        h("div", { class: "bar-track" }, h("i", { class: "bar-h", style: `width: ${Math.max(2, (m.sets / maxSets) * 100)}%` })),
+        h("span", { class: "muted small" },
+          `${plural(m.sets, "Satz", "Sätze")} · ${volumeFormat.format(m.reps)} Wdh. · ${volumeFormat.format(m.volume)} kg bewegt`)))),
+    h("p", { class: "muted small" },
+      h("a", { href: "#/muscles" }, "Muskelgruppen der Übungen zuordnen"),
+      muscles.some((m) => !m.muscle) ? " – einige Übungen sind noch nicht zugeordnet." : ""),
+
+    h("h3", {}, "Wiederholungen pro Übung"),
+    h("div", { class: "sheet" }, exercises.map((e) =>
+      h("div", { class: "ex-stat" },
+        h("div", { class: "ex-stat-head" },
+          h("strong", {}, e.exercise_name),
+          h("span", {}, `${volumeFormat.format(e.reps)} Wdh.`)),
+        h("div", { class: "bar-track" }, h("i", { class: "bar-h", style: `width: ${Math.max(2, (e.reps / maxReps) * 100)}%` })),
+        h("span", { class: "muted small" },
+          `${plural(e.sets, "Satz", "Sätze")} · ${volumeFormat.format(e.volume)} kg bewegt`)))));
 }
 
 function buildCalendar(year, month, byDay) {
@@ -583,7 +722,8 @@ function buildSessionPage(session) {
                 ? h("span", { class: "chip" }, plural(counts[ex.id], "Satz", "Sätze"))
                 : h("span", { class: "chev" }, "›")),
             h("a", { class: "swap-link", href: `#/swap/${session.id}/${ex.id}`, "aria-label": `${ex.name} tauschen` }, "Tauschen"))))
-      : h("p", { class: "empty" }, "Dieses Workout hat keine Übungen. Füge sie unter „Workouts verwalten“ hinzu."),
+      : h("p", { class: "empty" }, "Dieses Workout hat keine Übungen. Füge unten eine hinzu."),
+    h("p", { class: "add-link" }, h("a", { class: "btn quiet", href: `#/add/${session.id}` }, "Übung hinzufügen")),
     h("div", { class: "finish" },
       h("button", { type: "button", class: live ? "btn" : "btn primary", onclick: finish },
         live ? "Workout beenden" : "Fertig")),
@@ -758,6 +898,46 @@ function buildHistory(history, session) {
 
 /* ----- Übung spontan tauschen ----- */
 
+/* ----- Muskelgruppen zuordnen ----- */
+
+async function renderMuscles() {
+  const library = await Api.get("/api/exercises");           // alphabetisch
+  return [
+    backLink("#/", "Kalender"),
+    h("h1", {}, "Muskelgruppen"),
+    h("p", { class: "muted" }, "Ordne jede Übung ihrer Hauptmuskelgruppe zu. Die Auswertung auf der Startseite nutzt das."),
+    library.length
+      ? h("div", { class: "sheet" }, library.map((ex) => h("div", { class: "row" },
+          h("span", { class: "grow" }, ex.name),
+          muscleSelector(ex.muscle, (muscle) => perform(() => Api.patch(`/api/exercises/${ex.id}`, { muscle }))))))
+      : h("p", { class: "empty" }, "Es gibt noch keine Übungen."),
+  ];
+}
+
+/* ----- Übung nachträglich zu einem Training hinzufügen ----- */
+
+async function renderAddExercise(sessionId) {
+  const session = await loadSession(sessionId);
+  const library = await Api.get("/api/exercises");
+  const picker = buildExercisePicker({
+    library,
+    excludeIds: session.exercises.map((e) => e.id),    // schon vorhandene nicht anbieten
+    submitLabel: "Übung hinzufügen",
+    onSubmit: (choice) => perform(async () => {
+      await Api.post(`/api/sessions/${session.id}/exercises`, choice);
+      state.session = state.session && state.session.id === session.id
+        ? await Api.get("/api/sessions/active") : state.session;
+      location.hash = sessionHref(session);
+    }),
+  });
+  return [
+    backLink(sessionHref(session), "Übungen"),
+    h("h1", {}, "Übung hinzufügen"),
+    h("p", { class: "muted" }, "Die Übung wird nur zu diesem Training hinzugefügt. Das Workout selbst bleibt unverändert."),
+    h("div", { class: "sheet" }, picker),
+  ];
+}
+
 async function renderSwap(sessionId, exerciseId) {
   const session = await loadSession(sessionId);
   const exerciseKey = Number(exerciseId);
@@ -863,6 +1043,15 @@ function moveButton(workout, exercise, direction, disabled) {
  *  Tippt man auf einen Vorschlag, wird genau diese Übung verwendet. Ein neuer
  *  Name (mit optionalem Bild) legt eine neue Übung an.
  *  onSubmit bekommt { exercise_id } oder { name, image }. */
+/** Auswahlfeld für die Muskelgruppe. current = bisherige Gruppe oder null. */
+function muscleSelector(current, onChange) {
+  const select = h("select", { "aria-label": "Muskelgruppe", onchange: () => onChange?.(select.value || null) },
+    h("option", { value: "" }, "keine Zuordnung"),
+    MUSCLES.map((name) => h("option", { value: name }, name)));
+  select.value = current || "";
+  return select;
+}
+
 function buildExercisePicker({ library, excludeIds, submitLabel, onSubmit }) {
   let imageData = null;                         // das gewählte, verkleinerte Bild
   const candidates = library.filter((ex) => !excludeIds.includes(ex.id));
@@ -875,6 +1064,10 @@ function buildExercisePicker({ library, excludeIds, submitLabel, onSubmit }) {
   const hint = h("p", { class: "muted small" });
   const list = h("div", { class: "suggestions", role: "list" });
 
+  // Muskelgruppe für neue Übungen. Wird aus dem Namen vorgeschlagen, solange man nicht selbst wählt.
+  let muscleTouched = false;
+  const muscleSelect = muscleSelector(null, () => { muscleTouched = true; });
+
   /** Zeigt zu den eingetippten Buchstaben die passenden bekannten Übungen. */
   function refresh() {
     const query = nameInput.value.trim().toLowerCase();
@@ -882,6 +1075,8 @@ function buildExercisePicker({ library, excludeIds, submitLabel, onSubmit }) {
     const matches = candidates
       .filter((ex) => ex.name.toLowerCase().includes(query))
       .sort((a, b) => startsWith(b) - startsWith(a));         // Treffer am Wortanfang zuerst
+
+    if (!muscleTouched) muscleSelect.value = MuscleGuesser.guess(nameInput.value) || "";
 
     list.replaceChildren(...matches.map((ex) =>
       h("button", {
@@ -916,10 +1111,11 @@ function buildExercisePicker({ library, excludeIds, submitLabel, onSubmit }) {
     class: "add-exercise",
     onsubmit: (event) => {
       event.preventDefault();
-      onSubmit({ name: nameInput.value, image: imageData });
+      onSubmit({ name: nameInput.value, image: imageData, muscle: muscleSelect.value || null });
     },
   },
     nameInput, hint, list,
+    h("label", { class: "muscle-field" }, h("span", { class: "muted small" }, "Muskelgruppe (für neue Übungen)"), muscleSelect),
     h("div", { class: "actions" },
       pickButton, preview, fileInput,
       h("button", { type: "submit", class: "btn primary" }, submitLabel)));
@@ -942,6 +1138,8 @@ const routes = [
   [/^#\/log\/(\d+)$/, renderLoggedSession],
   [/^#\/log\/(\d+)\/exercise\/(\d+)$/, renderLoggedExercise],
   [/^#\/swap\/(\d+)\/(\d+)$/, renderSwap],
+  [/^#\/add\/(\d+)$/, renderAddExercise],
+  [/^#\/muscles$/, renderMuscles],
 ];
 
 let renderId = 0;   // verhindert, dass eine langsame alte Ansicht eine neuere überschreibt

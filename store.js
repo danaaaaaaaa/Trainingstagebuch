@@ -54,6 +54,45 @@ const isPlainText = (value, max) => typeof value === "string" && value.trim().le
 
 
 /* ---------------------------------------------------------------------
+   Muskelgruppen
+   Jede Übung kann genau einer Hauptgruppe zugeordnet werden. Die Liste ist
+   fest, damit die Auswertung übersichtlich bleibt.
+   --------------------------------------------------------------------- */
+
+const MUSCLES = ["Brust", "Rücken", "Schultern", "Bizeps", "Trizeps", "Bauch", "Beine", "Gesäß", "Waden"];
+
+/** Schlägt anhand des Namens eine Muskelgruppe vor ("Rudern am Kabelzug" -> Rücken).
+ *  Das ist nur eine Vorauswahl, die man ändern kann; keine feste Zuordnung. */
+class MuscleGuesser {
+  // Reihenfolge ist wichtig: Der erste Treffer gewinnt ("leg raise" soll Bauch sein, nicht Beine).
+  // Ein Stichwort gilt nur am Wortanfang ("drücken" enthält "rücken", ist aber kein Rücken).
+  // Mit "*" davor gilt es auch mitten im Wort (z. B. "Kurzhantelrudern").
+  static KEYWORDS = [
+    ["Waden", ["wade", "calf"]],
+    ["Gesäß", ["hip thrust", "glute", "gesäß", "gesaess"]],
+    ["Bauch", ["bauch", "crunch", "plank", "sit-up", "situp", "leg raise", "beinheben", "russian twist"]],
+    ["Beine", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel", "adduktor", "abduktor"]],
+    ["Trizeps", ["*trizeps", "tricep", "dips", "skull", "pushdown", "french press", "kickback"]],
+    ["Bizeps", ["*bizeps", "bicep", "*curl", "hammer"]],
+    ["Schultern", ["schulter", "shoulder", "military", "seitheben", "lateral raise", "frontheben", "face pull", "arnold", "overhead press"]],
+    ["Rücken", ["rücken", "*rudern", "row", "*klimmzü", "pull-up", "pullup", "chin-up", "latzug", "lat pull", "kreuzheben", "deadlift", "hyperext", "shrug"]],
+    ["Brust", ["brust", "*bankdrück", "bank", "*fliegen", "butterfly", "fly", "liegestütz", "push-up", "pushup", "chest"]],
+  ];
+
+  static guess(name) {
+    const text = ` ${normalizeName(name)} `;
+    const matches = (word) => (word.startsWith("*")
+      ? text.includes(word.slice(1))
+      : new RegExp(`[^a-zäöüß]${word.replace(/[-.*+?^${}()|[\]\\]/g, "\\$&")}`).test(text));
+    for (const [muscle, words] of MuscleGuesser.KEYWORDS) {
+      if (words.some(matches)) return muscle;
+    }
+    return null;
+  }
+}
+
+
+/* ---------------------------------------------------------------------
    2. Images: Bilder prüfen
    --------------------------------------------------------------------- */
 
@@ -97,7 +136,7 @@ class Images {
 
 class Database {
   static NAME = "trainingstagebuch";
-  static TABLES = ["workouts", "exercises", "workout_exercises", "sessions", "session_exercises", "set_entries"];
+  static TABLES = ["workouts", "exercises", "workout_exercises", "sessions", "session_exercises", "set_entries", "body_weights"];
 
   constructor() {
     this.tables = Database.emptyTables();
@@ -207,7 +246,7 @@ class ExerciseLibrary {
   }
 
   toExercise(row) {
-    return { id: row.id, name: row.name, image_url: this.db.images[row.id] || null };
+    return { id: row.id, name: row.name, muscle: row.muscle || null, image_url: this.db.images[row.id] || null };
   }
 
   /** Alle bekannten Übungen, alphabetisch (für die Vorschläge beim Eintippen). */
@@ -217,6 +256,17 @@ class ExerciseLibrary {
       .map((row) => this.toExercise(row));
   }
 
+  /** Ordnet einer Übung eine Muskelgruppe zu (oder null = keine). */
+  async setMuscle(exerciseId, data) {
+    const muscle = data?.muscle ?? null;
+    if (muscle !== null && !MUSCLES.includes(muscle)) throw invalid("Unbekannte Muskelgruppe.");
+    const row = this.db.tables.exercises.find((e) => e.id === exerciseId);
+    if (!row) throw notFound("Übung nicht gefunden.");
+    row.muscle = muscle;
+    await this.db.persist();
+    return null;
+  }
+
   /** Prüft die Eingabe: entweder eine vorhandene Übung (exercise_id) oder ein Name. */
   parse(choice) {
     const c = choice || {};
@@ -224,7 +274,8 @@ class ExerciseLibrary {
     if (byId && !Number.isInteger(c.exercise_id)) throw invalid();
     if (!byId && !isPlainText(c.name, 80)) throw invalid("Bitte eine Übung wählen oder einen Namen eingeben.");
     const image = c.image ? Images.check(c.image) : null;
-    return { exercise_id: byId ? c.exercise_id : null, name: byId ? null : c.name.trim(), image };
+    if (c.muscle != null && !MUSCLES.includes(c.muscle)) throw invalid("Unbekannte Muskelgruppe.");
+    return { exercise_id: byId ? c.exercise_id : null, name: byId ? null : c.name.trim(), image, muscle: c.muscle ?? null };
   }
 
   /** Id einer vorhandenen Übung (oder null, wenn der Name neu ist). Ändert nichts. */
@@ -244,10 +295,12 @@ class ExerciseLibrary {
     const existing = this.find(parsed);
     if (existing != null) {
       if (parsed.image && !this.db.images[existing]) this.db.setImage(existing, parsed.image);
+      const row = this.db.tables.exercises.find((e) => e.id === existing);
+      if (parsed.muscle && !row.muscle) row.muscle = parsed.muscle;         // nur ergänzen, nie überschreiben
       return existing;
     }
     const id = this.db.nextId("exercises");
-    this.db.tables.exercises.push({ id, name: parsed.name });
+    this.db.tables.exercises.push({ id, name: parsed.name, muscle: parsed.muscle });
     if (parsed.image) this.db.setImage(id, parsed.image);
     return id;
   }
@@ -499,6 +552,68 @@ class SessionStore {
     return [...rows.values()].sort((a, b) => b.volume - a.volume);
   }
 
+  /** Ausführliche Auswertung. Mit Monat ('2026-11') nur dieser Monat, sonst alles.
+   *  - exercises: pro Übung Sätze, Wiederholungen und bewegtes Gewicht
+   *  - timeline:  bewegtes Gewicht und Trainings pro Tag (Monat) bzw. pro Monat (Gesamt) */
+  analysis(month) {
+    if (month != null) SessionStore.checkMonth(month);
+    const t = this.db.tables;
+    const bySession = this._setsBySession();
+    const sessions = t.sessions.filter((s) => bySession.has(s.id) && (month == null || s.started_at.startsWith(month)));
+    const ids = new Set(sessions.map((s) => s.id));
+
+    // Pro Übung
+    const perExercise = new Map();
+    for (const e of t.set_entries) {
+      if (!ids.has(e.session_id)) continue;
+      const row = perExercise.get(e.exercise_id) || {
+        exercise_id: e.exercise_id, exercise_name: t.exercises.find((x) => x.id === e.exercise_id).name,
+        sets: 0, reps: 0, volume: 0,
+      };
+      row.sets += 1;
+      row.reps += e.reps;
+      row.volume += e.reps * e.weight;
+      perExercise.set(e.exercise_id, row);
+    }
+    // Pro Muskelgruppe (Hauptgruppe der Übung); ohne Zuordnung unter "Nicht zugeordnet"
+    const perMuscle = new Map();
+    for (const row of perExercise.values()) {
+      const name = t.exercises.find((x) => x.id === row.exercise_id).muscle || null;
+      const group = perMuscle.get(name) || { muscle: name, sets: 0, reps: 0, volume: 0 };
+      group.sets += row.sets;
+      group.reps += row.reps;
+      group.volume += row.volume;
+      perMuscle.set(name, group);
+    }
+    const muscles = [...perMuscle.values()].sort((a, b) => b.sets - a.sets);
+    const exercises = [...perExercise.values()].sort((a, b) => b.reps - a.reps || a.exercise_name.localeCompare(b.exercise_name, "de"));
+
+    // Zeitverlauf: Behälter ("Tage" oder "Monate") vorbereiten, damit auch leere Zeiträume auftauchen
+    const buckets = new Map();
+    if (month != null) {
+      const [year, mon] = month.split("-").map(Number);
+      const days = new Date(year, mon, 0).getDate();
+      for (let d = 1; d <= days; d++) buckets.set(`${month}-${pad2(d)}`, { key: `${month}-${pad2(d)}`, volume: 0, sessions: 0 });
+    } else if (sessions.length) {
+      const first = sessions.map((s) => s.started_at.slice(0, 7)).sort()[0];
+      let [year, mon] = first.split("-").map(Number);
+      const now = new Date();
+      while (year < now.getFullYear() || (year === now.getFullYear() && mon <= now.getMonth() + 1)) {
+        const key = `${year}-${pad2(mon)}`;
+        buckets.set(key, { key, volume: 0, sessions: 0 });
+        if (++mon > 12) { mon = 1; year++; }
+      }
+    }
+    for (const s of sessions) {
+      const bucket = buckets.get(month != null ? s.started_at.slice(0, 10) : s.started_at.slice(0, 7));
+      if (!bucket) continue;
+      bucket.sessions += 1;
+      bucket.volume += bySession.get(s.id).reduce((sum, e) => sum + e.reps * e.weight, 0);
+    }
+    const timeline = [...buckets.values()];
+    return { exercises, muscles, timeline: month != null ? timeline : timeline.slice(-24) };   // Gesamt: letzte 24 Monate
+  }
+
   /** Alle Sätze als CSV-Text (für Excel: Semikolon-getrennt). Neueste zuerst. */
   exportCsv() {
     const t = this.db.tables;
@@ -591,6 +706,25 @@ class SessionStore {
     return this.get(sessionId);
   }
 
+  // ---------- Übungen hinzufügen ----------
+
+  /** Fügt einem laufenden (oder nachgetragenen) Training nachträglich eine Übung hinzu.
+   *  Nur dieses Training ändert sich, das Workout selbst bleibt unverändert. */
+  async addExercise(sessionId, choice) {
+    const t = this.db.tables;
+    this._editable(sessionId);
+    const parsed = this.library.parse(choice);
+    const existing = this.library.find(parsed);
+    if (existing != null && t.session_exercises.some((se) => se.session_id === sessionId && se.exercise_id === existing)) {
+      throw conflict("Diese Übung ist schon Teil des Trainings.");
+    }
+    t.session_exercises.push({
+      id: this.db.nextId("session_exercises"), session_id: sessionId, exercise_id: this.library.resolve(parsed),
+    });
+    await this.db.persist();
+    return this.get(sessionId);
+  }
+
   // ---------- Sätze ----------
 
   /** Trägt einen Satz ein. Bei einem nachgetragenen Training bekommt der Satz
@@ -660,6 +794,49 @@ class SessionStore {
 }
 
 
+/** Das Körpergewicht: optional, höchstens ein Eintrag pro Tag (ein neuer Eintrag
+ *  am selben Tag ersetzt den alten). */
+class BodyWeightStore {
+  constructor(db) {
+    this.db = db;
+  }
+
+  /** Alle Einträge, der neueste zuerst. */
+  getAll() {
+    return [...this.db.tables.body_weights].sort((a, b) => b.day.localeCompare(a.day))
+      .map((row) => ({ id: row.id, day: row.day, kg: row.kg }));
+  }
+
+  /** Trägt das Gewicht ein. Ohne Datum gilt heute. */
+  async save(data) {
+    const today = nowIso().slice(0, 10);
+    const day = data?.date ?? today;
+    const kg = data?.kg;
+    if (typeof kg !== "number" || !(kg >= 20 && kg <= 500)) throw invalid("Bitte ein Gewicht zwischen 20 und 500 kg eingeben.");
+    if (typeof day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(day)
+        || localIso(new Date(`${day}T12:00`)).slice(0, 10) !== day) throw invalid("Ungültiges Datum.");
+    if (day > today) throw invalid("Das Datum kann nicht in der Zukunft liegen.");
+
+    const rounded = Math.round(kg * 10) / 10;                        // eine Nachkommastelle
+    const rows = this.db.tables.body_weights;
+    const existing = rows.find((row) => row.day === day);
+    if (existing) existing.kg = rounded;
+    else rows.push({ id: this.db.nextId("body_weights"), day, kg: rounded });
+    await this.db.persist();
+    return null;
+  }
+
+  async delete(id) {
+    const rows = this.db.tables.body_weights;
+    const index = rows.findIndex((row) => row.id === id);
+    if (index < 0) throw notFound("Eintrag nicht gefunden.");
+    rows.splice(index, 1);
+    await this.db.persist();
+    return null;
+  }
+}
+
+
 /* ---------------------------------------------------------------------
    5. Backup: Sicherung als Datei
    Weil die Daten nur auf dem Handy liegen, ist die Sicherung wichtig:
@@ -712,10 +889,12 @@ class Backup {
     // Pro Tabelle: welche Felder müssen welchen Typ haben?
     const rules = {
       workouts: (r) => isText(r.name, 60) && /^#[0-9a-fA-F]{6}$/.test(r.color) && isText(r.created_at),
-      exercises: (r) => isText(r.name, 80),
+      exercises: (r) => isText(r.name, 80) && (r.muscle == null || MUSCLES.includes(r.muscle)),
       workout_exercises: (r) => isInt(r.workout_id) && isInt(r.exercise_id) && isInt(r.position),
       sessions: (r) => isInt(r.workout_id) && isTime(r.started_at) && (r.ended_at == null || isTime(r.ended_at)),
       session_exercises: (r) => isInt(r.session_id) && isInt(r.exercise_id),
+      body_weights: (r) => typeof r.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.day)
+        && typeof r.kg === "number" && r.kg >= 20 && r.kg <= 500,
       set_entries: (r) => isInt(r.session_id) && isInt(r.exercise_id) && isInt(r.reps) && r.reps >= 1 && r.reps <= 1000
         && typeof r.weight === "number" && r.weight >= 0 && r.weight <= 1000
         && (r.note == null || isText(r.note)) && isTime(r.logged_at),
@@ -723,7 +902,8 @@ class Backup {
 
     const tables = { counters: {} };
     for (const name of Database.TABLES) {
-      const rows = data.tables[name];
+      // Sicherungen aus der Zeit vor dem Körpergewicht haben diese Tabelle noch nicht
+      const rows = data.tables[name] ?? (name === "body_weights" ? [] : undefined);
       if (!Array.isArray(rows)) fail();
       const ids = new Set();
       tables[name] = rows.map((row) => {
@@ -768,6 +948,7 @@ const db = new Database();
 const library = new ExerciseLibrary(db);
 const workoutStore = new WorkoutStore(db, library);
 const sessionStore = new SessionStore(db, library);
+const bodyWeights = new BodyWeightStore(db);
 const backup = new Backup(db);
 const ready = db.open();            // die Oberfläche wartet darauf, bevor sie Daten abfragt
 
@@ -782,10 +963,15 @@ class LocalServer {
     ["POST",   /^\/api\/workouts\/(\d+)\/exercises$/,            (q, body, id) => workoutStore.addExercise(id, body)],
     ["POST",   /^\/api\/workouts\/(\d+)\/exercises\/(\d+)\/move$/, (q, body, id, ex) => workoutStore.moveExercise(id, ex, body)],
     ["DELETE", /^\/api\/workouts\/(\d+)\/exercises\/(\d+)$/,     (q, body, id, ex) => workoutStore.removeExercise(id, ex)],
+    ["GET",    /^\/api\/bodyweight$/,                           () => bodyWeights.getAll()],
+    ["POST",   /^\/api\/bodyweight$/,                           (q, body) => bodyWeights.save(body)],
+    ["DELETE", /^\/api\/bodyweight\/(\d+)$/,                    (q, body, id) => bodyWeights.delete(id)],
     ["GET",    /^\/api\/exercises$/,                             () => library.getAll()],
+    ["PATCH",  /^\/api\/exercises\/(\d+)$/,                    (q, body, id) => library.setMuscle(id, body)],
     ["GET",    /^\/api\/exercises\/(\d+)\/history$/,             (q, body, id) => sessionStore.exerciseHistory(id)],
     ["GET",    /^\/api\/sessions\/active$/,                      () => sessionStore.getActive()],
     ["GET",    /^\/api\/sessions\/stats$/,                       (q) => sessionStore.stats(q.get("month"))],
+    ["GET",    /^\/api\/sessions\/analysis$/,                   (q) => sessionStore.analysis(q.get("month"))],
     ["GET",    /^\/api\/sessions$/,                              (q) => sessionStore.getMonth(q.get("month"))],
     ["POST",   /^\/api\/sessions$/,                              (q, body) => sessionStore.start(body)],
     ["POST",   /^\/api\/sessions\/backfill$/,                    (q, body) => sessionStore.backfill(body)],
@@ -793,6 +979,7 @@ class LocalServer {
     ["DELETE", /^\/api\/sessions\/(\d+)$/,                       (q, body, id) => sessionStore.delete(id)],
     ["POST",   /^\/api\/sessions\/(\d+)\/finish$/,               (q, body, id) => sessionStore.finish(id)],
     ["POST",   /^\/api\/sessions\/(\d+)\/exercises\/(\d+)\/replace$/, (q, body, id, ex) => sessionStore.replaceExercise(id, ex, body)],
+    ["POST",   /^\/api\/sessions\/(\d+)\/exercises$/,           (q, body, id) => sessionStore.addExercise(id, body)],
     ["POST",   /^\/api\/sessions\/(\d+)\/sets$/,                 (q, body, id) => sessionStore.addSet(id, body)],
     ["DELETE", /^\/api\/sessions\/(\d+)\/sets\/(\d+)$/,          (q, body, id, setId) => sessionStore.deleteSet(id, setId)],
   ];
