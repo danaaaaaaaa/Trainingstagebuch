@@ -381,5 +381,27 @@ select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); borde
 
 /* Startseite: die zwei Zusatzknöpfe nebeneinander */
 .home-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0 8px; }
-.home-actions .btn { justify-content: center; text-align: center; background: var(--surface); border-radius: 14px; }
+.home-actions .btn { justify-content: center; text-align: center; border-radius: 14px; }
+/* Nur die ruhigen Knöpfe bekommen die helle Fläche, der blaue Hauptknopf behält seine Farbe */
+.home-actions .btn.quiet { background: var(--surface); }
 .data .home-actions { grid-template-columns: 1fr; }
+
+/* Hinweistext (z. B. "Sicherung fällig"): im Dunkelmodus heller für guten Kontrast */
+@media (prefers-color-scheme: dark) {
+  .warn { color: #ffb347; }
+}
+
+/* Kein Zoom durch Doppeltippen; schnelles Mehrfachtippen auf + und − wird nicht als Textauswahl gewertet */
+* { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+button, .btn, .step, .quick-step { -webkit-user-select: none; user-select: none; }
+
+/* Gewicht: schmale Reihe für größere Schritte, bewusst dezenter als die großen +/- Tasten */
+.quick-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.quick-step {
+  min-height: 44px; border: 2px solid var(--line); border-radius: 12px;
+  background: transparent; color: var(--muted); font: inherit; font-size: 1.05rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.quick-step:active { background: var(--bg); color: var(--ink); }
+.quick-caption { grid-column: 1 / -1; color: var(--muted); font-size: .8rem; }
+.quick-steps { gap: 6px 8px; }

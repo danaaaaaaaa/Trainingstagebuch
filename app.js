@@ -996,6 +996,7 @@ async function buildExercisePage(session, exerciseId) {
     h("div", { class: "fields" },
       numberField(h("label", { for: "field-reps" }, "Wiederholungen"), reps, 1, 1, "Wiederholungen"),
       numberField(weightLabel, weight, 2.5, 0, "Gewicht")),
+    quickWeightSteps(weight),
     h("label", { class: "check" }, bodyweight, "Körpergewicht (z. B. Klimmzüge)"),
     note,
     saveButton);
@@ -1010,6 +1011,22 @@ async function buildExercisePage(session, exerciseId) {
     buildProgressChart(history),
     buildHistory(history, session),
   ];
+}
+
+/** Eine schmale Reihe mit Tasten für größere Gewichtsschritte (−10, −5, +5, +10 kg).
+ *  Die großen − und + am Feld bleiben für die feinen Schritte (2,5 kg). */
+function quickWeightSteps(weightInput) {
+  const bump = (amount) => {
+    const next = (Number(weightInput.value) || 0) + amount;
+    weightInput.value = Math.min(1000, Math.max(0, Math.round(next * 100) / 100));
+  };
+  return h("div", { class: "quick-steps", role: "group", "aria-label": "Gewicht in größeren Schritten ändern" },
+    h("span", { class: "quick-caption", "aria-hidden": "true" }, "Gewicht ändern (kg)"),
+    [-10, -5, 5, 10].map((amount) => h("button", {
+      type: "button", class: "quick-step",
+      "aria-label": `${amount > 0 ? "plus" : "minus"} ${Math.abs(amount)} Kilogramm`,
+      onclick: () => bump(amount),
+    }, `${amount > 0 ? "+" : "−"}${Math.abs(amount)}`)));
 }
 
 /** Zahlenfeld mit großen Plus- und Minus-Tasten (gut mit nassen Fingern zu treffen). */
@@ -1404,4 +1421,11 @@ route();
 // Service Worker: speichert die App-Dateien, damit sie auch ohne Internet startet
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => { /* ohne Offline-Start weiter nutzbar */ });
+}
+
+// Zoomen ausschalten: Die App soll sich beim Training nicht versehentlich vergrößern.
+// Doppeltippen verhindert "touch-action" in der style.css, das Auseinanderziehen mit zwei Fingern
+// blockieren wir hier (iOS meldet es als "gesture"-Ereignis).
+for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(type, (event) => event.preventDefault());
 }
