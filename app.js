@@ -245,6 +245,28 @@ const noWorkoutsHint = () => [
 
 /* ----- Startseite: Kalender ----- */
 
+/* ----- Info-Symbole: Erklärtexte nur bei Bedarf einblenden ----- */
+
+/** Erzeugt ein kleines "i"-Symbol und den dazugehörigen Erklärtext (zunächst versteckt).
+ *  Gibt [Symbol, Text] zurück: Das Symbol kommt neben die Überschrift, der Text darunter. */
+function makeInfo(text) {
+  const note = h("p", { class: "info-text", role: "note", hidden: true }, text);
+  const button = h("button", {
+    type: "button", class: "info-btn", "aria-label": "Hinweis anzeigen", "aria-expanded": "false",
+    onclick: () => {
+      note.hidden = !note.hidden;
+      button.setAttribute("aria-expanded", String(!note.hidden));
+    },
+  }, "i");
+  return [button, note];
+}
+
+/** Zeigt ein Element (meist eine Überschrift) mit Info-Symbol rechts daneben und dem Text darunter. */
+function withInfo(content, text) {
+  const [button, note] = makeInfo(text);
+  return h("div", { class: "info-block" }, h("div", { class: "info-row" }, content, button), note);
+}
+
 /* ----- Aufklappbare Bereiche der Startseite ----- */
 
 /** Ein Bereich, der sich per Tipp auf die Titelzeile auf- und zuklappen lässt.
@@ -328,9 +350,11 @@ function buildBodyWeight(entries) {            // entries: neueste zuerst
   }, kgInput, dateInput, h("button", { type: "submit", class: "btn primary" }, "Eintragen"));
 
   return h("section", { class: "bodyweight", "aria-label": "Körpergewicht" },
-    entries.length
-      ? h("p", { class: "muted" }, `Zuletzt: ${numberFormat.format(entries[0].kg)} kg am ${formatDay(entries[0].day)}`)
-      : h("p", { class: "muted" }, "Optional: Trage dein Gewicht ein, um den Verlauf zu sehen."),
+    withInfo(
+      h("p", { class: "muted" }, entries.length
+        ? `Zuletzt: ${numberFormat.format(entries[0].kg)} kg am ${formatDay(entries[0].day)}`
+        : "Noch kein Eintrag"),
+      "Optional: Trage dein Gewicht ein, um den Verlauf zu sehen. Pro Tag gibt es einen Eintrag, ein neuer am selben Tag ersetzt den alten."),
     form,
     buildWeightChart(entries),
     entries.length
@@ -417,14 +441,14 @@ function buildWeightProgress(list) {
   showPoint(last);
 
   return h("div", { class: "weight-progress" },
-    select,
+    withInfo(select, "Pro Trainingstag zählt das höchste Gewicht. Tippe auf einen Punkt, um Datum, Gewicht und Wiederholungen zu sehen."),
     buildTrendChart(current.points.map((p) => ({ ...p, value: p.weight })),
       `Gewicht für ${current.exercise_name}, zuletzt ${numberFormat.format(last.weight)} kg`, showPoint),
     detail,
     h("p", { class: "muted small" },
       current.points.length > 1
-        ? `Von ${numberFormat.format(first.weight)} kg auf ${numberFormat.format(last.weight)} kg (${change >= 0 ? "+" : "−"}${numberFormat.format(Math.abs(change))} kg) in ${plural(current.points.length, "Training", "Trainings")}. Pro Tag zählt das höchste Gewicht.`
-        : "Bisher gibt es nur ein Training mit Gewicht. Pro Tag zählt das höchste Gewicht."));
+        ? `Von ${numberFormat.format(first.weight)} kg auf ${numberFormat.format(last.weight)} kg (${change >= 0 ? "+" : "−"}${numberFormat.format(Math.abs(change))} kg) in ${plural(current.points.length, "Training", "Trainings")}.`
+        : "Bisher gibt es nur ein Training mit Gewicht."));
 }
 
 /* ----- Daten: CSV-Export und Sicherung ----- */
@@ -505,8 +529,7 @@ function buildMusclePie(muscles) {
     return svg("path", { d: `M ${C} ${C} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z` });
   };
 
-  const detail = h("div", { class: "pie-detail", "aria-live": "polite" },
-    h("p", { class: "muted" }, "Tippe auf ein Stück der Torte oder auf einen Eintrag darunter."));
+  const detail = h("div", { class: "pie-detail", "aria-live": "polite" });          // leer, bis etwas gewählt ist
   const parts = [];                                               // [Tortenstück, Legendeneintrag]
   let selected = null;
 
@@ -529,7 +552,7 @@ function buildMusclePie(muscles) {
             h("dt", {}, "Wiederholungen"), h("dd", {}, volumeFormat.format(selected.reps)),
             h("dt", {}, "Sätze"), h("dd", {}, volumeFormat.format(selected.sets)),
             h("dt", {}, "Gesamtgewicht"), h("dd", {}, `${volumeFormat.format(selected.volume)} kg`)))
-      : h("p", { class: "muted" }, "Tippe auf ein Stück der Torte oder auf einen Eintrag darunter."));
+      : []);
   };
 
   const pieces = slices.map((slice) => {
@@ -598,7 +621,8 @@ function buildAnalysis({ exercises, muscles, timeline }) {
       bars),
     h("p", { class: "muted small" }, `${plural(sessionsTotal, "Training", "Trainings")} in diesem Zeitraum.`),
 
-    h("h3", {}, "Muskelgruppen (Anteil an den Wiederholungen)"),
+    withInfo(h("h3", {}, "Muskelgruppen (Anteil an den Wiederholungen)"),
+      "Tippe auf ein Stück der Torte oder auf einen Eintrag darunter, um Prozent, Wiederholungen, Sätze und Gesamtgewicht zu sehen."),
     buildMusclePie(muscles),
     h("p", { class: "muted small" },
       h("a", { href: "#/muscles" }, "Muskelgruppen der Übungen zuordnen"),
@@ -724,9 +748,10 @@ function buildStats(rows) {
     onclick: () => { state.statsAll = showAll; route(); },
   }, label);
 
+  const statsInfo = makeInfo("Bewegtes Gewicht = Wiederholungen × Gewicht. Bei Körpergewicht zählt nur das Zusatzgewicht.");
   return h("section", { class: "stats", "aria-label": "Statistik" },
     h("div", { class: "stats-head" },
-      h("h3", {}, "Statistik"),
+      h("div", { class: "info-row" }, h("h3", {}, "Statistik"), statsInfo[0]),
       h("div", { class: "segmented" }, switchButton("Dieser Monat", false), switchButton("Gesamt", true))),
     rows.length
       ? h("div", { class: "sheet" },
@@ -742,8 +767,7 @@ function buildStats(rows) {
                 h("span", { class: "volume" }, `${volumeFormat.format(total)} kg`))
             : null)
       : h("p", { class: "empty" }, "In diesem Zeitraum gibt es noch keine Trainings."),
-    h("p", { class: "muted small" },
-      "Bewegtes Gewicht = Wiederholungen × Gewicht. Bei Körpergewicht zählt nur das Zusatzgewicht."));
+    statsInfo[1]);
 }
 
 /* ----- Workout auswählen (zum Starten und zum Nachtragen) ----- */
@@ -832,7 +856,8 @@ async function renderBackfill() {
     h("div", { class: "fields when" },
       h("div", { class: "field" }, h("label", { for: "backfill-date" }, "Datum"), dateInput),
       h("div", { class: "field" }, h("label", { for: "backfill-time" }, "Uhrzeit"), timeInput)),
-    h("p", { class: "muted small" }, "Danach trägst du die Sätze wie im normalen Training ein. Alle Sätze erhalten die gewählte Uhrzeit."),
+    withInfo(h("span", { class: "muted small" }, "Wann war das Training?"),
+      "Danach trägst du die Sätze wie im normalen Training ein. Alle Sätze erhalten die gewählte Uhrzeit."),
     h("div", { class: "start-bar" }, submit));
 
   return [...header, form];
@@ -994,9 +1019,8 @@ async function buildExercisePage(session, exerciseId) {
   },
     h("h2", {}, `Satz ${doneHere + 1}`),
     h("div", { class: "fields" },
-      numberField(h("label", { for: "field-reps" }, "Wiederholungen"), reps, 1, 1, "Wiederholungen"),
-      numberField(weightLabel, weight, 2.5, 0, "Gewicht")),
-    quickWeightSteps(weight),
+      numberField(h("label", { for: "field-reps" }, "Wiederholungen"), reps, [-1, 1], 1, "Wiederholungen"),
+      numberField(weightLabel, weight, [-10, -5, -2.5, 2.5, 5, 10], 0, "Gewicht")),
     h("label", { class: "check" }, bodyweight, "Körpergewicht (z. B. Klimmzüge)"),
     note,
     saveButton);
@@ -1013,34 +1037,30 @@ async function buildExercisePage(session, exerciseId) {
   ];
 }
 
-/** Eine schmale Reihe mit Tasten für größere Gewichtsschritte (−10, −5, +5, +10 kg).
- *  Die großen − und + am Feld bleiben für die feinen Schritte (2,5 kg). */
-function quickWeightSteps(weightInput) {
-  const bump = (amount) => {
-    const next = (Number(weightInput.value) || 0) + amount;
-    weightInput.value = Math.min(1000, Math.max(0, Math.round(next * 100) / 100));
+/** Zahlenfeld mit Tasten für feste Schritte (gut mit nassen Fingern zu treffen).
+ *  amounts: die Schritte in der Reihenfolge der Tasten, z. B. [-1, 1] oder [-10, -5, -2.5, 2.5, 5, 10].
+ *  Alle Tasten sind gleichwertig; bei mehr als zwei Tasten stehen sie in zwei Reihen. */
+function numberField(labelElement, input, amounts, min, name) {
+  const MAX = 1000;
+  const change = (amount) => {
+    const next = (Number(input.value) || 0) + amount;
+    input.value = Math.min(MAX, Math.max(min, Math.round(next * 100) / 100));
+    input.classList.add("changed");                              // kurzes Aufleuchten als Rückmeldung
+    setTimeout(() => input.classList.remove("changed"), 220);
   };
-  return h("div", { class: "quick-steps", role: "group", "aria-label": "Gewicht in größeren Schritten ändern" },
-    h("span", { class: "quick-caption", "aria-hidden": "true" }, "Gewicht ändern (kg)"),
-    [-10, -5, 5, 10].map((amount) => h("button", {
-      type: "button", class: "quick-step",
-      "aria-label": `${amount > 0 ? "plus" : "minus"} ${Math.abs(amount)} Kilogramm`,
-      onclick: () => bump(amount),
-    }, `${amount > 0 ? "+" : "−"}${Math.abs(amount)}`)));
-}
+  // Beschriftung mit Vorzeichen und deutschem Komma: "+2,5", "−10"
+  // (bei nur zwei Tasten, z. B. Wiederholungen, genügt "−" und "+")
+  const caption = (amount) => `${amount > 0 ? "+" : "−"}${amounts.length > 2 ? numberFormat.format(Math.abs(amount)) : ""}`;
 
-/** Zahlenfeld mit großen Plus- und Minus-Tasten (gut mit nassen Fingern zu treffen). */
-function numberField(labelElement, input, step, min, name) {
-  const change = (direction) => {
-    const next = (Number(input.value) || 0) + direction * step;
-    input.value = Math.max(min, Math.round(next * 100) / 100);
-  };
   return h("div", { class: "field" },
     labelElement,
     input,
-    h("div", { class: "step-buttons" },
-      h("button", { type: "button", class: "step", "aria-label": name + " verringern", onclick: () => change(-1) }, "−"),
-      h("button", { type: "button", class: "step", "aria-label": name + " erhöhen", onclick: () => change(1) }, "+")));
+    h("div", { class: "step-buttons", style: `grid-template-columns: repeat(${amounts.length > 2 ? Math.ceil(amounts.length / 2) : 2}, minmax(0, 1fr))` },
+      amounts.map((amount) => h("button", {
+        type: "button", class: "step" + (amounts.length > 2 ? " small" : ""),
+        "aria-label": `${name} ${amount > 0 ? "plus" : "minus"} ${numberFormat.format(Math.abs(amount))}`,
+        onclick: () => change(amount),
+      }, caption(amount)))));
 }
 
 /** Fortschrittsdiagramm einer Übung: pro Trainingstag der beste Wert.
@@ -1131,8 +1151,8 @@ async function renderMuscles() {
     backLink("#/", "Kalender"),
     h("h1", {}, "Muskelgruppen"),
 
-    h("h2", {}, "Übungen zuordnen"),
-    h("p", { class: "muted" }, "Ordne jede Übung ihrer Hauptmuskelgruppe zu. Die Auswertung auf der Startseite nutzt das."),
+    withInfo(h("h2", {}, "Übungen zuordnen"),
+      "Ordne jede Übung ihrer Hauptmuskelgruppe zu. Die Auswertung auf der Startseite nutzt das."),
     library.length
       ? h("div", { class: "sheet" }, library.map((ex) => h("div", { class: "row" },
           h("span", { class: "grow" }, ex.name),
@@ -1177,8 +1197,8 @@ async function renderAddExercise(sessionId) {
   });
   return [
     backLink(sessionHref(session), "Übungen"),
-    h("h1", {}, "Übung hinzufügen"),
-    h("p", { class: "muted" }, "Die Übung wird nur zu diesem Training hinzugefügt. Das Workout selbst bleibt unverändert."),
+    withInfo(h("h1", {}, "Übung hinzufügen"),
+      "Die Übung wird nur zu diesem Training hinzugefügt. Das Workout selbst bleibt unverändert."),
     h("div", { class: "sheet" }, picker),
   ];
 }
@@ -1192,7 +1212,8 @@ async function renderSwap(sessionId, exerciseId) {
   const header = [
     backLink(sessionHref(session), "Übungen"),
     h("h1", {}, "Übung tauschen"),
-    h("p", { class: "muted" }, `Statt „${current.name}“. Die anderen Übungen des Workouts bleiben unverändert.`),
+    withInfo(h("p", { class: "muted" }, `Statt „${current.name}“.`),
+      "Die Übung wird nur in diesem Training getauscht. Die anderen Übungen und das Workout selbst bleiben unverändert."),
   ];
 
   if (session.sets.some((s) => s.exercise_id === exerciseKey)) {

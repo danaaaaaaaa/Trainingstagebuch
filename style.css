@@ -393,15 +393,44 @@ select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); borde
 
 /* Kein Zoom durch Doppeltippen; schnelles Mehrfachtippen auf + und − wird nicht als Textauswahl gewertet */
 * { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-button, .btn, .step, .quick-step { -webkit-user-select: none; user-select: none; }
+button, .btn, .step { -webkit-user-select: none; user-select: none; }
 
-/* Gewicht: schmale Reihe für größere Schritte, bewusst dezenter als die großen +/- Tasten */
-.quick-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
-.quick-step {
-  min-height: 44px; border: 2px solid var(--line); border-radius: 12px;
-  background: transparent; color: var(--muted); font: inherit; font-size: 1.05rem; font-weight: 700;
-  font-variant-numeric: tabular-nums; cursor: pointer;
+
+/* Zahlenfelder: Tasten füllen die Höhe der Nachbarspalte aus. Beim Gewicht sechs gleichwertige Tasten in zwei Reihen */
+.field { display: flex; flex-direction: column; }
+.step-buttons { flex: 1; }
+.step-buttons { gap: 8px; }
+.step.small { min-height: 48px; font-size: 1.15rem; padding: 0 2px; font-variant-numeric: tabular-nums; }
+
+/* Info-Symbole: Erklärtexte erst bei Tipp auf das "i" */
+.info-block { margin: 6px 0 12px; }
+.info-row { display: flex; align-items: center; gap: 10px; }
+.info-row > h1, .info-row > h2, .info-row > h3, .info-row > p { margin: 0; flex: 1; min-width: 0; }
+.info-row > select { flex: 1; min-width: 0; margin: 0; }
+.info-btn {
+  position: relative; flex: none; width: 26px; height: 26px; padding: 0;
+  border: 1.5px solid var(--muted); border-radius: 50%; background: transparent; color: var(--muted);
+  font: italic 700 .95rem/1 Georgia, "Times New Roman", serif; cursor: pointer;
 }
-.quick-step:active { background: var(--bg); color: var(--ink); }
-.quick-caption { grid-column: 1 / -1; color: var(--muted); font-size: .8rem; }
-.quick-steps { gap: 6px 8px; }
+.info-btn::before { content: ""; position: absolute; inset: -10px; }       /* größere Tippfläche */
+.info-btn[aria-expanded="true"] { background: var(--muted); color: var(--bg); }
+.info-text { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); font-size: .9rem; }
+.pie-detail:empty { display: none; }
+.stats-head .info-row { flex: none; }
+.stats-head .info-row > h3 { flex: none; }
+.progress-select { margin: 10px 0 4px; }
+
+/* Dezente Rückmeldung beim Tippen: Taste gibt kurz nach, Zahlenfeld leuchtet beim Ändern auf */
+button, .btn, .step, .legend-entry, .exercise-row, .swap-link, summary {
+  transition: transform .08s ease, background-color .12s ease, opacity .12s ease;
+}
+button:active:not(:disabled), .btn:active, .exercise-row:active { transform: scale(.97); }
+.step:active { background: var(--line); }
+.btn.primary:active { opacity: .85; }
+.btn:active:not(.primary), .exercise-row:active, summary:active, .legend-entry:active { background-color: color-mix(in srgb, var(--line) 55%, transparent); }
+.field input { transition: border-color .15s ease, background-color .15s ease; }
+.field input.changed { border-color: var(--accent); background-color: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+@media (prefers-reduced-motion: reduce) {
+  button, .btn, .step, summary { transition: none; }
+  button:active:not(:disabled), .btn:active, .exercise-row:active { transform: none; }
+}
