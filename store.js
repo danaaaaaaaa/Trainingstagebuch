@@ -1042,28 +1042,6 @@ class BodyWeightStore {
 }
 
 
-/** Einstellungen der App (liegen im Speicher des Geräts, nicht in den Trainingsdaten). */
-class AppSettings {
-  static BODY_MODELS = ["male", "female"];
-
-  constructor(db) {
-    this.db = db;
-  }
-
-  get() {
-    const body = this.db.meta.settings?.bodyModel;
-    return { bodyModel: AppSettings.BODY_MODELS.includes(body) ? body : "male" };
-  }
-
-  async save(data) {
-    if (!AppSettings.BODY_MODELS.includes(data?.bodyModel)) throw invalid("Unbekannte Einstellung.");
-    this.db.meta.settings = { ...(this.db.meta.settings || {}), bodyModel: data.bodyModel };
-    await this.db.persist();
-    return null;
-  }
-}
-
-
 /* ---------------------------------------------------------------------
    5. Backup: Sicherung als Datei
    Weil die Daten nur auf dem Handy liegen, ist die Sicherung wichtig:
@@ -1087,7 +1065,7 @@ class Backup {
   async createFile() {
     const content = JSON.stringify({
       format: Backup.FORMAT, version: Backup.VERSION, exported_at: nowIso(),
-      tables: this.db.tables, images: this.db.images, settings: this.db.meta.settings || {},
+      tables: this.db.tables, images: this.db.images,
     });
     this.db.meta.lastBackupAt = nowIso();
     await this.db.persist();
@@ -1100,10 +1078,7 @@ class Backup {
     let data;
     try { data = JSON.parse(text); } catch { throw invalid("Die Datei ist keine gültige Sicherung des Trainingstagebuchs."); }
     const { tables, images } = Backup.validate(data);
-    // Einstellungen aus der Sicherung übernehmen (nur bekannte Werte)
-    const body = data.settings?.bodyModel;
-    const settings = AppSettings.BODY_MODELS.includes(body) ? { bodyModel: body } : (this.db.meta.settings || {});
-    await this.db.replaceAll(tables, images, { lastBackupAt: this.db.meta.lastBackupAt || null, settings });
+    await this.db.replaceAll(tables, images, { lastBackupAt: this.db.meta.lastBackupAt || null });
   }
 
   /** Prüft den Inhalt einer Sicherung und gibt bereinigte Tabellen zurück. */
@@ -1191,7 +1166,6 @@ const library = new ExerciseLibrary(db, muscleCatalog);
 const workoutStore = new WorkoutStore(db, library);
 const sessionStore = new SessionStore(db, library);
 const bodyWeights = new BodyWeightStore(db);
-const appSettings = new AppSettings(db);
 const backup = new Backup(db);
 const ready = db.open();            // die Oberfläche wartet darauf, bevor sie Daten abfragt
 
@@ -1206,8 +1180,6 @@ class LocalServer {
     ["POST",   /^\/api\/workouts\/(\d+)\/exercises$/,            (q, body, id) => workoutStore.addExercise(id, body)],
     ["POST",   /^\/api\/workouts\/(\d+)\/exercises\/(\d+)\/move$/, (q, body, id, ex) => workoutStore.moveExercise(id, ex, body)],
     ["DELETE", /^\/api\/workouts\/(\d+)\/exercises\/(\d+)$/,     (q, body, id, ex) => workoutStore.removeExercise(id, ex)],
-    ["GET",    /^\/api\/settings$/,                             () => appSettings.get()],
-    ["POST",   /^\/api\/settings$/,                             (q, body) => appSettings.save(body)],
     ["GET",    /^\/api\/muscles$/,                              () => muscleCatalog.getAll()],
     ["POST",   /^\/api\/muscles$/,                              (q, body) => muscleCatalog.add(body)],
     ["DELETE", /^\/api\/muscles\/(\d+)$/,                       (q, body, id) => muscleCatalog.remove(id)],

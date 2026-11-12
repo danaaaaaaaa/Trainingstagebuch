@@ -173,7 +173,6 @@ async function saveFile(name, text, type) {
    --------------------------------------------------------------------- */
 
 const state = {
-  bodyViewer: null,       // aktuelle Muskelkarte (zum Aufräumen)
   openFolds: new Set(),   // geöffnete Bereiche der Startseite
   progressExercise: null, // gewählte Übung bei der Gewichtsentwicklung
   editOrder: false,   // Reihenfolge/Supersätze bearbeiten (Training-Seite)
@@ -268,36 +267,6 @@ function withInfo(content, text) {
   return h("div", { class: "info-block" }, h("div", { class: "info-row" }, content, button), note);
 }
 
-/* ----- Muskelkarte: 3D-Körper mit farbig markierten Muskelgruppen ----- */
-
-/** Zeigt den Körper (männlich oder weiblich, nach Einstellung) mit den trainierten Muskelgruppen
- *  des gewählten Zeitraums. Die Darstellung selbst steckt in body.js. */
-function buildBodyMap(muscles, settings) {
-  state.bodyViewer?.destroy();                                   // alte Ansicht aufräumen
-
-  const segment = (label, active, onclick) =>
-    h("button", { type: "button", class: "seg" + (active ? " active" : ""), onclick }, label);
-  const [infoButton, infoNote] = makeInfo(
-    "Ein Finger dreht den Körper, zwei Finger verschieben und zoomen. Ein Tipp auf einen Muskel zeigt Anteil, "
-    + "Wiederholungen, Sätze und Gesamtgewicht der Gruppe. Je kräftiger die Farbe (gelb bis rot), desto mehr "
-    + "Wiederholungen. Eigene Muskelgruppen und nicht zugeordnete Übungen lassen sich nicht am Körper darstellen.");
-
-  const controls = h("div", { class: "body-controls" },
-    h("div", { class: "segmented" },
-      segment("Dieser Monat", !state.statsAll, () => { state.statsAll = false; route(); }),
-      segment("Gesamt", state.statsAll, () => { state.statsAll = true; route(); })),
-    h("div", { class: "segmented" },
-      segment("Mann", settings.bodyModel === "male", () => perform(() => Api.post("/api/settings", { bodyModel: "male" }))),
-      segment("Frau", settings.bodyModel === "female", () => perform(() => Api.post("/api/settings", { bodyModel: "female" })))),
-    infoButton);
-
-  if (!muscles.length) {
-    return [controls, infoNote, h("p", { class: "empty" }, "In diesem Zeitraum gibt es noch keine Trainings.")];
-  }
-  state.bodyViewer = new BodyViewer(muscles, settings.bodyModel);
-  return [controls, infoNote, state.bodyViewer.element];
-}
-
 /* ----- Aufklappbare Bereiche der Startseite ----- */
 
 /** Ein Bereich, der sich per Tipp auf die Titelzeile auf- und zuklappen lässt.
@@ -331,13 +300,12 @@ async function renderHome() {
   const month = state.month.getMonth();
   const monthKey = `${year}-${pad(month + 1)}`;
 
-  const [sessions, stats, analysis, bodyWeight, weights, settings] = await Promise.all([
+  const [sessions, stats, analysis, bodyWeight, weights] = await Promise.all([
     Api.get(`/api/sessions?month=${monthKey}`),
     Api.get(state.statsAll ? "/api/sessions/stats" : `/api/sessions/stats?month=${monthKey}`),
     Api.get(state.statsAll ? "/api/sessions/analysis" : `/api/sessions/analysis?month=${monthKey}`),
     Api.get("/api/bodyweight"),
     Api.get("/api/sessions/weights"),
-    Api.get("/api/settings"),
   ]);
   const byDay = groupBy(sessions, (s) => dayKey(new Date(s.started_at)));   // neueste zuerst
   const selected = state.selectedDay && byDay[state.selectedDay] ? state.selectedDay : null;
@@ -362,7 +330,6 @@ async function renderHome() {
     selected ? buildDayDetail(selected, details) : null,
     h("div", { class: "folds" },
       fold("stats", "Statistik & Auswertung", [buildStats(stats), buildAnalysis(analysis)]),
-      fold("body", "Muskelkarte", () => buildBodyMap(analysis.muscles, settings), { hint: "3D-Körper" }),
       fold("weights", "Gewichtsentwicklung", buildWeightProgress(weights), { hint: "pro Übung" }),
       fold("bodyweight", "Körpergewicht", buildBodyWeight(bodyWeight),
         { hint: bodyWeight.length ? `${numberFormat.format(bodyWeight[0].kg)} kg` : "optional" }),

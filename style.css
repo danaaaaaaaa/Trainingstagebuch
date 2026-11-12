@@ -435,18 +435,3 @@ button:active:not(:disabled), .btn:active, .exercise-row:active { transform: sca
   button:active:not(:disabled), .btn:active, .exercise-row:active { transform: none; }
 }
 
-/* Muskelkarte */
-.body-viewer { display: block; }
-.body-stage { width: 100%; max-width: 440px; margin: 8px auto 0; }
-.body-canvas { display: block; width: 100%; touch-action: none; cursor: grab; border-radius: 16px; background: var(--surface); outline: none; }
-.body-canvas:active { cursor: grabbing; }
-.body-canvas:focus-visible { box-shadow: 0 0 0 3px var(--accent); }
-.view-bar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; max-width: 440px; margin: 10px auto 12px; }
-.view-btn { min-height: 44px; padding: 0 2px; white-space: nowrap; min-width: 0; border: 2px solid var(--line); border-radius: 12px; background: transparent; color: var(--ink); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
-.body-legend { list-style: none; margin: 0; padding: 0; }
-.body-note { margin-top: 8px; }
-
-.body-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0; }
-.body-controls .segmented { flex: 1 1 auto; }
-.body-controls .seg { flex: 1; padding: 0 10px; }
-.fold-body .body-viewer .pie-detail { margin-top: 10px; }
