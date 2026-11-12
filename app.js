@@ -173,6 +173,7 @@ async function saveFile(name, text, type) {
    --------------------------------------------------------------------- */
 
 const state = {
+  bodyViewer: null,       // aktuelle Muskelkarte (zum Aufräumen)
   openFolds: new Set(),   // geöffnete Bereiche der Startseite
   progressExercise: null, // gewählte Übung bei der Gewichtsentwicklung
   editOrder: false,   // Reihenfolge/Supersätze bearbeiten (Training-Seite)
@@ -267,20 +268,60 @@ function withInfo(content, text) {
   return h("div", { class: "info-block" }, h("div", { class: "info-row" }, content, button), note);
 }
 
+/* ----- Muskelkarte: 3D-Körper mit farbig markierten Muskelgruppen ----- */
+
+/** Zeigt den Körper (männlich oder weiblich, nach Einstellung) mit den trainierten Muskelgruppen
+ *  des gewählten Zeitraums. Die Darstellung selbst steckt in body.js. */
+function buildBodyMap(muscles, settings) {
+  state.bodyViewer?.destroy();                                   // alte Ansicht aufräumen
+
+  const segment = (label, active, onclick) =>
+    h("button", { type: "button", class: "seg" + (active ? " active" : ""), onclick }, label);
+  const [infoButton, infoNote] = makeInfo(
+    "Ein Finger dreht den Körper, zwei Finger verschieben und zoomen. Ein Tipp auf einen Muskel zeigt Anteil, "
+    + "Wiederholungen, Sätze und Gesamtgewicht der Gruppe. Je kräftiger die Farbe (gelb bis rot), desto mehr "
+    + "Wiederholungen. Eigene Muskelgruppen und nicht zugeordnete Übungen lassen sich nicht am Körper darstellen.");
+
+  const controls = h("div", { class: "body-controls" },
+    h("div", { class: "segmented" },
+      segment("Dieser Monat", !state.statsAll, () => { state.statsAll = false; route(); }),
+      segment("Gesamt", state.statsAll, () => { state.statsAll = true; route(); })),
+    h("div", { class: "segmented" },
+      segment("Mann", settings.bodyModel === "male", () => perform(() => Api.post("/api/settings", { bodyModel: "male" }))),
+      segment("Frau", settings.bodyModel === "female", () => perform(() => Api.post("/api/settings", { bodyModel: "female" })))),
+    infoButton);
+
+  if (!muscles.length) {
+    return [controls, infoNote, h("p", { class: "empty" }, "In diesem Zeitraum gibt es noch keine Trainings.")];
+  }
+  state.bodyViewer = new BodyViewer(muscles, settings.bodyModel);
+  return [controls, infoNote, state.bodyViewer.element];
+}
+
 /* ----- Aufklappbare Bereiche der Startseite ----- */
 
 /** Ein Bereich, der sich per Tipp auf die Titelzeile auf- und zuklappen lässt.
  *  Welche Bereiche offen sind, merkt sich die App, solange sie läuft. */
 function fold(id, title, content, { hint = null, badge = null } = {}) {
+  // Ist content eine Funktion, wird der Inhalt erst beim ersten Aufklappen gebaut (spart Arbeit)
+  const lazy = typeof content === "function";
+  const body = h("div", { class: "fold-body" }, lazy ? null : content);
   const el = h("details", { class: "fold" },
     h("summary", {},
       h("span", { class: "fold-title" }, title),
       hint ? h("span", { class: "fold-hint" }, hint) : null,
       badge ? h("span", { class: "fold-badge" }, badge) : null),
-    h("div", { class: "fold-body" }, content));
+    body);
+  let built = !lazy;
+  const ensureBuilt = () => {
+    if (built) return;
+    built = true;
+    body.append(...[content()].flat(Infinity).filter(Boolean));
+  };
   el.open = state.openFolds.has(id);
+  if (el.open) ensureBuilt();
   el.addEventListener("toggle", () => {
-    if (el.open) state.openFolds.add(id); else state.openFolds.delete(id);
+    if (el.open) { state.openFolds.add(id); ensureBuilt(); } else state.openFolds.delete(id);
   });
   return el;
 }
@@ -290,12 +331,13 @@ async function renderHome() {
   const month = state.month.getMonth();
   const monthKey = `${year}-${pad(month + 1)}`;
 
-  const [sessions, stats, analysis, bodyWeight, weights] = await Promise.all([
+  const [sessions, stats, analysis, bodyWeight, weights, settings] = await Promise.all([
     Api.get(`/api/sessions?month=${monthKey}`),
     Api.get(state.statsAll ? "/api/sessions/stats" : `/api/sessions/stats?month=${monthKey}`),
     Api.get(state.statsAll ? "/api/sessions/analysis" : `/api/sessions/analysis?month=${monthKey}`),
     Api.get("/api/bodyweight"),
     Api.get("/api/sessions/weights"),
+    Api.get("/api/settings"),
   ]);
   const byDay = groupBy(sessions, (s) => dayKey(new Date(s.started_at)));   // neueste zuerst
   const selected = state.selectedDay && byDay[state.selectedDay] ? state.selectedDay : null;
@@ -320,6 +362,7 @@ async function renderHome() {
     selected ? buildDayDetail(selected, details) : null,
     h("div", { class: "folds" },
       fold("stats", "Statistik & Auswertung", [buildStats(stats), buildAnalysis(analysis)]),
+      fold("body", "Muskelkarte", () => buildBodyMap(analysis.muscles, settings), { hint: "3D-Körper" }),
       fold("weights", "Gewichtsentwicklung", buildWeightProgress(weights), { hint: "pro Übung" }),
       fold("bodyweight", "Körpergewicht", buildBodyWeight(bodyWeight),
         { hint: bodyWeight.length ? `${numberFormat.format(bodyWeight[0].kg)} kg` : "optional" }),
@@ -1020,7 +1063,7 @@ async function buildExercisePage(session, exerciseId) {
     h("h2", {}, `Satz ${doneHere + 1}`),
     h("div", { class: "fields" },
       numberField(h("label", { for: "field-reps" }, "Wiederholungen"), reps, [-1, 1], 1, "Wiederholungen"),
-      numberField(weightLabel, weight, [-10, -5, -2.5, 2.5, 5, 10], 0, "Gewicht")),
+      numberField(weightLabel, weight, [2.5, 5, 10, -2.5, -5, -10], 0, "Gewicht")),
     h("label", { class: "check" }, bodyweight, "Körpergewicht (z. B. Klimmzüge)"),
     note,
     saveButton);
@@ -1038,7 +1081,7 @@ async function buildExercisePage(session, exerciseId) {
 }
 
 /** Zahlenfeld mit Tasten für feste Schritte (gut mit nassen Fingern zu treffen).
- *  amounts: die Schritte in der Reihenfolge der Tasten, z. B. [-1, 1] oder [-10, -5, -2.5, 2.5, 5, 10].
+ *  amounts: die Schritte in der Reihenfolge der Tasten, z. B. [-1, 1] oder [2.5, 5, 10, -2.5, -5, -10].
  *  Alle Tasten sind gleichwertig; bei mehr als zwei Tasten stehen sie in zwei Reihen. */
 function numberField(labelElement, input, amounts, min, name) {
   const MAX = 1000;
@@ -1141,10 +1184,11 @@ function buildHistory(history, session) {
 async function renderMuscles() {
   const [library, groups] = await Promise.all([Api.get("/api/exercises"), Api.get("/api/muscles")]);
   const custom = groups.filter((g) => g.custom);
+  const ownExercises = library.filter((ex) => !ex.preset);        // Vorauswahl-Übungen noch nicht zuordnen
 
   const nameInput = h("input", {
     type: "text", maxlength: 30, required: true, autocomplete: "off",
-    placeholder: "Neue Muskelgruppe, z. B. Unterarme", "aria-label": "Name der neuen Muskelgruppe",
+    placeholder: "Neue Muskelgruppe, z. B. Hüftbeuger", "aria-label": "Name der neuen Muskelgruppe",
   });
 
   return [
@@ -1153,8 +1197,8 @@ async function renderMuscles() {
 
     withInfo(h("h2", {}, "Übungen zuordnen"),
       "Ordne jede Übung ihrer Hauptmuskelgruppe zu. Die Auswertung auf der Startseite nutzt das."),
-    library.length
-      ? h("div", { class: "sheet" }, library.map((ex) => h("div", { class: "row" },
+    ownExercises.length
+      ? h("div", { class: "sheet" }, ownExercises.map((ex) => h("div", { class: "row" },
           h("span", { class: "grow" }, ex.name),
           muscleSelector(ex.muscle, (muscle) => perform(() => Api.patch(`/api/exercises/${ex.id}`, { muscle }))))))
       : h("p", { class: "empty" }, "Es gibt noch keine Übungen."),
@@ -1350,13 +1394,14 @@ function buildExercisePicker({ library, excludeIds, submitLabel, onSubmit }) {
     list.replaceChildren(...matches.map((ex) =>
       h("button", {
         type: "button", class: "suggestion", role: "listitem",
-        onclick: () => onSubmit({ exercise_id: ex.id }),
+        // Vorauswahl-Übungen gibt es noch nicht in der Bibliothek: sie werden mit ihrer Muskelgruppe neu angelegt
+        onclick: () => onSubmit(ex.preset ? { name: ex.name, muscle: ex.muscle } : { exercise_id: ex.id }),
       }, ex.image_url ? h("img", { class: "mini", src: ex.image_url, alt: "", loading: "lazy" }) : null, ex.name)));
     list.hidden = !matches.length;
 
     if (!candidates.length) hint.textContent = "";
     else if (query && !matches.length) hint.textContent = `„${nameInput.value.trim()}“ ist neu und wird angelegt.`;
-    else hint.textContent = "Bereits angelegte Übungen: antippen, um sie zu verwenden.";
+    else hint.textContent = "Vorschläge und angelegte Übungen: antippen, um sie zu verwenden.";
   }
 
   const preview = h("img", { class: "thumb", alt: "Vorschau", hidden: true });

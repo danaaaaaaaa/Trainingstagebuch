@@ -60,7 +60,21 @@ const isPlainText = (value, max) => typeof value === "string" && value.trim().le
    --------------------------------------------------------------------- */
 
 const DEFAULT_MUSCLES = ["Brust", "Rücken", "Schultern", "Bizeps", "Trizeps", "Bauch",
-  "Oberschenkelvorderseite", "Oberschenkelrückseite", "Gesäß", "Waden"];
+  "Beinstrecker", "Beinbeuger", "Gesäß", "Waden",
+  "Trapez", "Unterer Rücken", "Unterarme", "Nacken", "Adduktoren", "Abduktoren"];
+
+/** Vorauswahl häufiger Übungen mit ihrer Hauptmuskelgruppe. Sie erscheinen in der Übungsauswahl
+ *  und werden erst beim ersten Verwenden wirklich angelegt (nichts davon liegt vorab im Speicher). */
+const EXERCISE_PRESETS = [
+  ["Bankdrücken", "Brust"], ["Schrägbankdrücken", "Brust"], ["Liegestütze", "Brust"],
+  ["Klimmzüge", "Rücken"], ["Latziehen", "Rücken"], ["Rudern am Kabel", "Rücken"], ["Kreuzheben", "Rücken"],
+  ["Schulterdrücken", "Schultern"], ["Seitheben", "Schultern"], ["Face Pulls", "Schultern"],
+  ["Langhantel-Curl", "Bizeps"], ["Hammercurls", "Bizeps"],
+  ["Trizepsdrücken am Kabel", "Trizeps"], ["Dips", "Trizeps"],
+  ["Kniebeugen", "Beinstrecker"], ["Beinpresse", "Beinstrecker"], ["Beinstrecken", "Beinstrecker"],
+  ["Beinbeugen", "Beinbeuger"], ["Rumänisches Kreuzheben", "Beinbeuger"],
+  ["Hip Thrust", "Gesäß"], ["Wadenheben", "Waden"], ["Crunches", "Bauch"],
+];
 
 /** Schlägt anhand des Namens eine Muskelgruppe vor ("Rudern am Kabelzug" -> Rücken).
  *  Das ist nur eine Vorauswahl, die man ändern kann; keine feste Zuordnung. */
@@ -71,13 +85,19 @@ class MuscleGuesser {
   static KEYWORDS = [
     ["Waden", ["wade", "calf"]],
     ["Gesäß", ["hip thrust", "glute", "gesäß", "gesaess"]],
+    ["Adduktoren", ["adduktor"]],
+    ["Abduktoren", ["abduktor"]],
+    ["Unterarme", ["handgelenk", "wrist", "unterarm", "farmer"]],
+    ["Nacken", ["nacken", "neck"]],
+    ["Trapez", ["trapez", "shrug", "schulterzuck"]],
+    ["Unterer Rücken", ["hyperext", "rückenstrecker", "back extension"]],
     ["Bauch", ["bauch", "crunch", "plank", "sit-up", "situp", "leg raise", "beinheben", "russian twist"]],
-    ["Oberschenkelrückseite", ["leg curl", "beinbeug", "hamstring", "rumän", "romanian", "good morning"]],
-    ["Oberschenkelvorderseite", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel", "adduktor", "abduktor"]],
+    ["Beinbeuger", ["leg curl", "beinbeug", "hamstring", "rumän", "romanian", "good morning"]],
+    ["Beinstrecker", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel"]],
     ["Trizeps", ["*trizeps", "tricep", "dips", "skull", "pushdown", "french press", "kickback"]],
     ["Bizeps", ["*bizeps", "bicep", "*curl", "hammer"]],
     ["Schultern", ["schulter", "shoulder", "military", "seitheben", "lateral raise", "frontheben", "face pull", "arnold", "overhead press"]],
-    ["Rücken", ["rücken", "*rudern", "row", "*klimmzü", "pull-up", "pullup", "chin-up", "latzug", "lat pull", "kreuzheben", "deadlift", "hyperext", "shrug"]],
+    ["Rücken", ["rücken", "*rudern", "row", "*klimmzü", "pull-up", "pullup", "chin-up", "latzug", "lat pull", "kreuzheben", "deadlift"]],
     ["Brust", ["brust", "*bankdrück", "bank", "*fliegen", "butterfly", "fly", "liegestütz", "push-up", "pushup", "chest"]],
   ];
 
@@ -194,13 +214,19 @@ class Database {
    *  "Beine" wurde aufgeteilt und lässt sich nicht automatisch zuordnen (danach: keine Zuordnung). */
   static migrateMuscles(tables) {
     const renamed = {
-      "Oberschenkel vorne": "Oberschenkelvorderseite",
-      "Oberschenkel hinten": "Oberschenkelrückseite",
+      "Oberschenkel vorne": "Beinstrecker",
+      "Oberschenkelvorderseite": "Beinstrecker",
+      "Oberschenkel hinten": "Beinbeuger",
+      "Oberschenkelrückseite": "Beinbeuger",
       "Beine": null,
     };
     for (const row of tables.exercises) {
       if (Object.hasOwn(renamed, row.muscle)) row.muscle = renamed[row.muscle];
     }
+    // Eigene Gruppen, die es jetzt als feste Gruppe gibt (z. B. "Unterarme"), entfallen; die Übungen behalten den Namen
+    const fixed = new Set(DEFAULT_MUSCLES.map(normalizeName));
+    const custom = tables.custom_muscles || [];
+    for (let i = custom.length - 1; i >= 0; i--) if (fixed.has(normalizeName(custom[i].name))) custom.splice(i, 1);
   }
 
   /** Gibt jeder Übung eines Trainings eine Position (0, 1, 2 ...). Ältere Daten hatten
@@ -328,11 +354,15 @@ class ExerciseLibrary {
     return { id: row.id, name: row.name, muscle: row.muscle || null, image_url: this.db.images[row.id] || null };
   }
 
-  /** Alle bekannten Übungen, alphabetisch (für die Vorschläge beim Eintippen). */
+  /** Alle bekannten Übungen, alphabetisch (für die Vorschläge beim Eintippen).
+   *  Dazu die Vorauswahl (preset: true, id: null), soweit es die Übung noch nicht gibt. */
   getAll() {
-    return [...this.db.tables.exercises]
-      .sort((a, b) => a.name.localeCompare(b.name, "de", { sensitivity: "base" }))
-      .map((row) => this.toExercise(row));
+    const known = new Set(this.db.tables.exercises.map((row) => normalizeName(row.name)));
+    const presets = EXERCISE_PRESETS
+      .filter(([name]) => !known.has(normalizeName(name)))
+      .map(([name, muscle]) => ({ id: null, name, muscle, image_url: null, preset: true }));
+    return [...this.db.tables.exercises.map((row) => this.toExercise(row)), ...presets]
+      .sort((a, b) => a.name.localeCompare(b.name, "de", { sensitivity: "base" }));
   }
 
   /** Ordnet einer Übung eine Muskelgruppe zu (oder null = keine). */
@@ -1012,6 +1042,28 @@ class BodyWeightStore {
 }
 
 
+/** Einstellungen der App (liegen im Speicher des Geräts, nicht in den Trainingsdaten). */
+class AppSettings {
+  static BODY_MODELS = ["male", "female"];
+
+  constructor(db) {
+    this.db = db;
+  }
+
+  get() {
+    const body = this.db.meta.settings?.bodyModel;
+    return { bodyModel: AppSettings.BODY_MODELS.includes(body) ? body : "male" };
+  }
+
+  async save(data) {
+    if (!AppSettings.BODY_MODELS.includes(data?.bodyModel)) throw invalid("Unbekannte Einstellung.");
+    this.db.meta.settings = { ...(this.db.meta.settings || {}), bodyModel: data.bodyModel };
+    await this.db.persist();
+    return null;
+  }
+}
+
+
 /* ---------------------------------------------------------------------
    5. Backup: Sicherung als Datei
    Weil die Daten nur auf dem Handy liegen, ist die Sicherung wichtig:
@@ -1035,7 +1087,7 @@ class Backup {
   async createFile() {
     const content = JSON.stringify({
       format: Backup.FORMAT, version: Backup.VERSION, exported_at: nowIso(),
-      tables: this.db.tables, images: this.db.images,
+      tables: this.db.tables, images: this.db.images, settings: this.db.meta.settings || {},
     });
     this.db.meta.lastBackupAt = nowIso();
     await this.db.persist();
@@ -1048,7 +1100,10 @@ class Backup {
     let data;
     try { data = JSON.parse(text); } catch { throw invalid("Die Datei ist keine gültige Sicherung des Trainingstagebuchs."); }
     const { tables, images } = Backup.validate(data);
-    await this.db.replaceAll(tables, images, { lastBackupAt: this.db.meta.lastBackupAt || null });
+    // Einstellungen aus der Sicherung übernehmen (nur bekannte Werte)
+    const body = data.settings?.bodyModel;
+    const settings = AppSettings.BODY_MODELS.includes(body) ? { bodyModel: body } : (this.db.meta.settings || {});
+    await this.db.replaceAll(tables, images, { lastBackupAt: this.db.meta.lastBackupAt || null, settings });
   }
 
   /** Prüft den Inhalt einer Sicherung und gibt bereinigte Tabellen zurück. */
@@ -1136,6 +1191,7 @@ const library = new ExerciseLibrary(db, muscleCatalog);
 const workoutStore = new WorkoutStore(db, library);
 const sessionStore = new SessionStore(db, library);
 const bodyWeights = new BodyWeightStore(db);
+const appSettings = new AppSettings(db);
 const backup = new Backup(db);
 const ready = db.open();            // die Oberfläche wartet darauf, bevor sie Daten abfragt
 
@@ -1150,6 +1206,8 @@ class LocalServer {
     ["POST",   /^\/api\/workouts\/(\d+)\/exercises$/,            (q, body, id) => workoutStore.addExercise(id, body)],
     ["POST",   /^\/api\/workouts\/(\d+)\/exercises\/(\d+)\/move$/, (q, body, id, ex) => workoutStore.moveExercise(id, ex, body)],
     ["DELETE", /^\/api\/workouts\/(\d+)\/exercises\/(\d+)$/,     (q, body, id, ex) => workoutStore.removeExercise(id, ex)],
+    ["GET",    /^\/api\/settings$/,                             () => appSettings.get()],
+    ["POST",   /^\/api\/settings$/,                             (q, body) => appSettings.save(body)],
     ["GET",    /^\/api\/muscles$/,                              () => muscleCatalog.getAll()],
     ["POST",   /^\/api\/muscles$/,                              (q, body) => muscleCatalog.add(body)],
     ["DELETE", /^\/api\/muscles\/(\d+)$/,                       (q, body, id) => muscleCatalog.remove(id)],

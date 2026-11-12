@@ -4,10 +4,10 @@
    Handy gespeichert. Danach startet die App auch im Flugmodus.
    WICHTIG: Bei jeder Änderung an der App die Zahl bei VERSION erhöhen, sonst
    bekommt das Handy die neuen Dateien nicht. Die Trainingsdaten sind davon nicht betroffen. */
-const VERSION = "v6";
+const VERSION = "v14";
 const CACHE = `trainingstagebuch-${VERSION}`;
 const FILES = [
-  "./", "index.html", "app.js", "store.js", "style.css", "manifest.webmanifest",
+  "./", "index.html", "app.js", "store.js", "body.js", "style.css", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
 ];
 
