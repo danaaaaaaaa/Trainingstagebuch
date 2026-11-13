@@ -60,7 +60,7 @@ const isPlainText = (value, max) => typeof value === "string" && value.trim().le
    --------------------------------------------------------------------- */
 
 const DEFAULT_MUSCLES = ["Brust", "Rücken", "Schultern", "Bizeps", "Trizeps", "Bauch",
-  "Beinstrecker", "Beinbeuger", "Gesäß", "Waden",
+  "Quadrizeps", "Beinbeuger", "Gesäß", "Waden",
   "Trapez", "Unterer Rücken", "Unterarme", "Nacken", "Adduktoren", "Abduktoren"];
 
 /** Vorauswahl häufiger Übungen mit ihrer Hauptmuskelgruppe. Sie erscheinen in der Übungsauswahl
@@ -71,8 +71,8 @@ const EXERCISE_PRESETS = [
   ["Schulterdrücken", "Schultern"], ["Seitheben", "Schultern"], ["Face Pulls", "Schultern"],
   ["Langhantel-Curl", "Bizeps"], ["Hammercurls", "Bizeps"],
   ["Trizepsdrücken am Kabel", "Trizeps"], ["Dips", "Trizeps"],
-  ["Kniebeugen", "Beinstrecker"], ["Beinpresse", "Beinstrecker"], ["Beinstrecken", "Beinstrecker"],
-  ["Beinbeugen", "Beinbeuger"], ["Rumänisches Kreuzheben", "Beinbeuger"],
+  ["Kniebeugen", "Quadrizeps"], ["Beinpresse", "Quadrizeps"], ["Beinstrecker", "Quadrizeps"],
+  ["Beinbeuger", "Beinbeuger"], ["Rumänisches Kreuzheben", "Beinbeuger"],
   ["Hip Thrust", "Gesäß"], ["Wadenheben", "Waden"], ["Crunches", "Bauch"],
 ];
 
@@ -93,7 +93,7 @@ class MuscleGuesser {
     ["Unterer Rücken", ["hyperext", "rückenstrecker", "back extension"]],
     ["Bauch", ["bauch", "crunch", "plank", "sit-up", "situp", "leg raise", "beinheben", "russian twist"]],
     ["Beinbeuger", ["leg curl", "beinbeug", "hamstring", "rumän", "romanian", "good morning"]],
-    ["Beinstrecker", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel"]],
+    ["Quadrizeps", ["bein", "*kniebeuge", "*squat", "leg ", "lunge", "ausfallschritt", "oberschenkel"]],
     ["Trizeps", ["*trizeps", "tricep", "dips", "skull", "pushdown", "french press", "kickback"]],
     ["Bizeps", ["*bizeps", "bicep", "*curl", "hammer"]],
     ["Schultern", ["schulter", "shoulder", "military", "seitheben", "lateral raise", "frontheben", "face pull", "arnold", "overhead press"]],
@@ -214,8 +214,9 @@ class Database {
    *  "Beine" wurde aufgeteilt und lässt sich nicht automatisch zuordnen (danach: keine Zuordnung). */
   static migrateMuscles(tables) {
     const renamed = {
-      "Oberschenkel vorne": "Beinstrecker",
-      "Oberschenkelvorderseite": "Beinstrecker",
+      "Oberschenkel vorne": "Quadrizeps",
+      "Oberschenkelvorderseite": "Quadrizeps",
+      "Beinstrecker": "Quadrizeps",
       "Oberschenkel hinten": "Beinbeuger",
       "Oberschenkelrückseite": "Beinbeuger",
       "Beine": null,
@@ -253,6 +254,11 @@ class Database {
   setImage(exerciseId, dataUrl) {
     this.images[exerciseId] = dataUrl;
     this.dirtyImages.add(exerciseId);
+  }
+
+  removeImage(exerciseId) {
+    delete this.images[exerciseId];
+    this.dirtyImages.add(exerciseId);        // beim Speichern wird das Bild dann gelöscht
   }
 
   /** Speichert den aktuellen Stand. Schlägt es fehl, wird der zuletzt
@@ -365,13 +371,28 @@ class ExerciseLibrary {
       .sort((a, b) => a.name.localeCompare(b.name, "de", { sensitivity: "base" }));
   }
 
-  /** Ordnet einer Übung eine Muskelgruppe zu (oder null = keine). */
-  async setMuscle(exerciseId, data) {
-    const muscle = data?.muscle ?? null;
-    if (muscle !== null && !this.muscles.isValid(muscle)) throw invalid("Unbekannte Muskelgruppe.");
+  /** Ändert eine vorhandene Übung. Alle Felder sind optional; nur mitgeschickte werden geändert:
+   *  name (Bezeichnung), muscle (Muskelgruppe oder null), image (neues Bild), remove_image (Bild entfernen).
+   *  Erst wird alles geprüft, dann geändert, damit nie nur ein Teil gespeichert wird. */
+  async update(exerciseId, data) {
+    const body = data || {};
     const row = this.db.tables.exercises.find((e) => e.id === exerciseId);
     if (!row) throw notFound("Übung nicht gefunden.");
-    row.muscle = muscle;
+
+    let name = null;
+    if ("name" in body) {
+      if (!isPlainText(body.name, 80)) throw invalid("Bitte eine Bezeichnung eingeben.");
+      name = body.name.trim();
+      const taken = this.db.tables.exercises.some((e) => e.id !== exerciseId && normalizeName(e.name) === normalizeName(name));
+      if (taken) throw conflict("Eine Übung mit dieser Bezeichnung gibt es schon.");
+    }
+    if ("muscle" in body && body.muscle != null && !this.muscles.isValid(body.muscle)) throw invalid("Unbekannte Muskelgruppe.");
+    const image = body.image ? Images.check(body.image) : null;
+
+    if (name !== null) row.name = name;
+    if ("muscle" in body) row.muscle = body.muscle ?? null;
+    if (image) this.db.setImage(exerciseId, image);
+    else if (body.remove_image) this.db.removeImage(exerciseId);
     await this.db.persist();
     return null;
   }
@@ -1187,7 +1208,7 @@ class LocalServer {
     ["POST",   /^\/api\/bodyweight$/,                           (q, body) => bodyWeights.save(body)],
     ["DELETE", /^\/api\/bodyweight\/(\d+)$/,                    (q, body, id) => bodyWeights.delete(id)],
     ["GET",    /^\/api\/exercises$/,                             () => library.getAll()],
-    ["PATCH",  /^\/api\/exercises\/(\d+)$/,                    (q, body, id) => library.setMuscle(id, body)],
+    ["PATCH",  /^\/api\/exercises\/(\d+)$/,                    (q, body, id) => library.update(id, body)],
     ["GET",    /^\/api\/exercises\/(\d+)\/history$/,             (q, body, id) => sessionStore.exerciseHistory(id)],
     ["GET",    /^\/api\/sessions\/active$/,                      () => sessionStore.getActive()],
     ["GET",    /^\/api\/sessions\/stats$/,                       (q) => sessionStore.stats(q.get("month"))],

@@ -435,3 +435,30 @@ button:active:not(:disabled), .btn:active, .exercise-row:active { transform: sca
   button:active:not(:disabled), .btn:active, .exercise-row:active { transform: none; }
 }
 
+
+/* ---------- Querformat ---------- */
+/* Aussparungen (Notch, Home-Balken) beachten, damit nichts verdeckt wird */
+.topbar { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+main { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); padding-bottom: max(64px, env(safe-area-inset-bottom)); }
+
+/* Niedriger Bildschirm (Handy quer): Leiste und Abstände kompakter, damit mehr Inhalt sichtbar bleibt */
+@media (orientation: landscape) and (max-height: 520px) {
+  .topbar { min-height: 44px; padding-top: 4px; padding-bottom: 4px; }
+  .brand { font-size: 1rem; }
+  .timer-value { font-size: 1.2rem; }
+  main { padding-top: 10px; padding-bottom: 40px; }
+  h1 { margin: 4px 0 12px; font-size: 1.5rem; }
+  .toast { bottom: 10px; }
+  /* Satz-Eingabe niedriger, damit "Satz speichern" ohne langes Scrollen erreichbar bleibt */
+  .field input { height: 56px; font-size: 2rem; }
+  .step { min-height: 52px; }
+  .step.small { min-height: 38px; }
+}
+
+/* Hinweis auf mögliche Gewichtssteigerung */
+.progress-hint { margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; border-left: 5px solid var(--accent); background: var(--surface); line-height: 1.4; }
+
+/* Übungsliste (Muskelgruppen): Name in eigener Zeile, darunter Auswahl und "Ändern" */
+.edit-row { flex-wrap: wrap; gap: 8px 12px; }
+.edit-row > .grow { flex: 1 0 100%; font-weight: 600; }
+.edit-row > select { flex: 1 1 0; min-width: 0; }

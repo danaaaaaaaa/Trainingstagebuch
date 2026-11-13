@@ -1041,10 +1041,39 @@ async function buildExercisePage(session, exerciseId) {
       h("h1", {}, exercise.name),
       h("a", { class: "btn quiet", href: `#/swap/${session.id}/${exercise.id}` }, "Übung tauschen")),
     exercise.image_url ? h("img", { class: "hero", src: exercise.image_url, alt: exercise.name }) : null,
+    buildProgressionHint(history),
     form,
     buildProgressChart(history),
     buildHistory(history, session),
   ];
+}
+
+/** Hinweis "Gewicht erhöhen": Waren bei den letzten 5 Trainings (alle innerhalb von 60 Tagen) die
+ *  schwersten Sätze unverändert (gleiches Gewicht und gleiche Wiederholungszahl), wird eine
+ *  Steigerung empfohlen. Wie viele Sätze verglichen werden, richtet sich nach den Trainings selbst:
+ *  Es zählt die kleinste Satzzahl dieser 5 Trainings (immer 1 Satz: ein Satz, mal 3 und mal 5: die
+ *  schwersten 3). Schwerster Satz = höchstes Gewicht, bei Gleichstand mehr Wiederholungen.
+ *  Reine Körpergewichtsübungen (Gewicht 0) bekommen keinen Hinweis. */
+function buildProgressionHint(history) {
+  const NEEDED = 5, DAYS = 60;
+  const trainings = Object.values(groupBy(history, (s) => s.session_id)).map((sets) => ({
+    sorted: [...sets].sort((a, b) => b.weight - a.weight || b.reps - a.reps),      // schwerster Satz zuerst
+    at: Math.max(...sets.map((s) => new Date(s.logged_at).getTime())),
+  })).sort((a, b) => b.at - a.at);                                                  // neuestes Training zuerst
+
+  const last = trainings.slice(0, NEEDED);
+  if (last.length < NEEDED) return null;
+  const count = Math.min(...last.map((t) => t.sorted.length));                      // so viele Sätze werden verglichen
+  const keyOf = (t) => t.sorted.slice(0, count).map((s) => `${s.weight}x${s.reps}`).join("|");
+  const same = last.every((t) => t.sorted[0].weight > 0 && keyOf(t) === keyOf(last[0]));
+  const recent = Date.now() - last[NEEDED - 1].at <= DAYS * 24 * 60 * 60 * 1000;
+  if (!same || !recent) return null;
+
+  const shown = last[0].sorted.slice(0, count).map((s) => `${numberFormat.format(s.weight)} kg × ${s.reps}`).join(", ");
+  return h("p", { class: "progress-hint", role: "note" },
+    h("strong", {}, "Zeit für mehr Gewicht? "),
+    `Bei den letzten ${NEEDED} Trainings ${count === 1 ? "war dein schwerster Satz" : `waren deine ${count} schwersten Sätze`} `
+    + `immer gleich: ${shown}. Probiere diesmal eine kleine Steigerung.`);
 }
 
 /** Zahlenfeld mit Tasten für feste Schritte (gut mit nassen Fingern zu treffen).
@@ -1162,12 +1191,14 @@ async function renderMuscles() {
     backLink("#/", "Kalender"),
     h("h1", {}, "Muskelgruppen"),
 
-    withInfo(h("h2", {}, "Übungen zuordnen"),
-      "Ordne jede Übung ihrer Hauptmuskelgruppe zu. Die Auswertung auf der Startseite nutzt das."),
+    withInfo(h("h2", {}, "Übungen bearbeiten"),
+      "Ordne jede Übung ihrer Hauptmuskelgruppe zu. Die Auswertung auf der Startseite nutzt das. "
+      + "Mit „Ändern“ passt du Bezeichnung und Bild einer Übung an."),
     ownExercises.length
-      ? h("div", { class: "sheet" }, ownExercises.map((ex) => h("div", { class: "row" },
+      ? h("div", { class: "sheet" }, ownExercises.map((ex) => h("div", { class: "row edit-row" },
           h("span", { class: "grow" }, ex.name),
-          muscleSelector(ex.muscle, (muscle) => perform(() => Api.patch(`/api/exercises/${ex.id}`, { muscle }))))))
+          muscleSelector(ex.muscle, (muscle) => perform(() => Api.patch(`/api/exercises/${ex.id}`, { muscle }))),
+          h("a", { class: "btn quiet", href: `#/edit/${ex.id}`, "aria-label": `${ex.name} ändern` }, "Ändern"))))
       : h("p", { class: "empty" }, "Es gibt noch keine Übungen."),
 
     h("h2", {}, "Eigene Muskelgruppen"),
@@ -1187,6 +1218,69 @@ async function renderMuscles() {
               && perform(() => Api.delete(`/api/muscles/${g.id}`)),
           }, "Löschen"))))
       : h("p", { class: "muted small" }, "Noch keine eigenen Gruppen. Die festen Gruppen lassen sich nicht ändern."),
+  ];
+}
+
+/* ----- Übung bearbeiten: Bezeichnung und Bild ----- */
+
+async function renderEditExercise(exerciseId) {
+  const library = await Api.get("/api/exercises");
+  const exercise = library.find((ex) => ex.id === Number(exerciseId));
+  if (!exercise) { location.hash = "#/muscles"; return null; }
+
+  let newImage = null;                 // neu gewähltes Bild (verkleinert)
+  let removeImage = false;             // vorhandenes Bild entfernen?
+
+  const nameInput = h("input", {
+    type: "text", maxlength: 80, required: true, autocomplete: "off",
+    value: exercise.name, "aria-label": "Bezeichnung der Übung",
+  });
+  const preview = h("img", { class: "thumb", alt: "Bild der Übung", hidden: !exercise.image_url, src: exercise.image_url || "" });
+  const fileInput = h("input", {
+    type: "file", accept: "image/*", hidden: true,
+    onchange: async () => {
+      if (!fileInput.files[0]) return;
+      try {
+        newImage = await resizeImage(fileInput.files[0]);
+        removeImage = false;
+        preview.src = newImage;
+        preview.hidden = false;
+        removeButton.hidden = false;
+        pickButton.textContent = "Bild ändern";
+      } catch (error) {
+        toast(error.message);
+      }
+    },
+  });
+  const pickButton = h("button", { type: "button", class: "btn", onclick: () => fileInput.click() },
+    exercise.image_url ? "Bild ändern" : "Bild wählen");
+  const removeButton = h("button", {
+    type: "button", class: "btn quiet danger", hidden: !exercise.image_url,
+    onclick: () => {
+      newImage = null; removeImage = true;
+      preview.hidden = true; removeButton.hidden = true;
+    },
+  }, "Bild entfernen");
+
+  return [
+    backLink("#/muscles", "Muskelgruppen"),
+    h("h1", {}, "Übung ändern"),
+    h("form", {
+      class: "add-exercise",
+      onsubmit: (event) => {
+        event.preventDefault();
+        const changes = { name: nameInput.value };
+        if (newImage) changes.image = newImage;
+        else if (removeImage) changes.remove_image = true;
+        perform(async () => {
+          await Api.patch(`/api/exercises/${exercise.id}`, changes);
+          location.hash = "#/muscles";
+        });
+      },
+    },
+      h("label", { class: "muscle-field" }, h("span", { class: "muted small" }, "Bezeichnung"), nameInput),
+      h("div", { class: "actions" }, pickButton, removeButton, preview, fileInput),
+      h("button", { type: "submit", class: "btn primary" }, "Speichern")),
   ];
 }
 
@@ -1421,6 +1515,7 @@ const routes = [
   [/^#\/swap\/(\d+)\/(\d+)$/, renderSwap],
   [/^#\/add\/(\d+)$/, renderAddExercise],
   [/^#\/muscles$/, renderMuscles],
+  [/^#\/edit\/(\d+)$/, renderEditExercise],
 ];
 
 let renderId = 0;   // verhindert, dass eine langsame alte Ansicht eine neuere überschreibt
