@@ -471,6 +471,21 @@ function backupDue() {
   return !last || (Date.now() - Date.parse(last)) / 86400000 > 14;
 }
 
+/** Prüft, ob der Service Worker aktiv ist und alle App-Dateien im Speicher des Geräts liegen. */
+async function checkOfflineReady() {
+  try {
+    if (!("serviceWorker" in navigator) || !("caches" in window)) return false;
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration?.active || !navigator.serviceWorker.controller) return false;
+    for (const file of ["index.html", "app.js", "store.js", "style.css"]) {
+      if (!(await caches.match(file))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function buildDataSection() {
   const last = backup.lastBackupAt();
   const days = last ? Math.floor((Date.now() - Date.parse(last)) / 86400000) : null;
@@ -493,8 +508,17 @@ function buildDataSection() {
     },
   });
 
+  // Zeigt, ob die App auf diesem Gerät auch ohne Internet startet (füllt sich, sobald geprüft)
+  const offlineStatus = h("p", { class: "muted small" });
+  checkOfflineReady().then((ready) => {
+    offlineStatus.textContent = ready
+      ? "Offline-Start: bereit. Die App startet auch ohne Internet."
+      : "Offline-Start: noch nicht bereit. Öffne die App einmal mit Internet und danach noch einmal.";
+  });
+
   return h("section", { class: "data" },
     h("p", { class: last && days <= 14 ? "muted" : "warn" }, status),
+    offlineStatus,
     h("div", { class: "home-actions" },
       h("button", { type: "button", class: "btn primary", onclick: () => perform(async () => {
         await saveFile(`trainingstagebuch-sicherung-${dayKey(new Date())}.json`, await backup.createFile(), "application/json");
