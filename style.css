@@ -462,3 +462,7 @@ main { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16
 .edit-row { flex-wrap: wrap; gap: 8px 12px; }
 .edit-row > .grow { flex: 1 0 100%; font-weight: 600; }
 .edit-row > select { flex: 1 1 0; min-width: 0; }
+
+/* Statistik-Reiter (Letztes Training / Monat / Gesamt): eigene Zeile, drei gleich breite Felder */
+.stats-head .segmented { flex: 1 1 100%; }
+.stats-head .seg { flex: 1; padding: 0 6px; white-space: nowrap; }

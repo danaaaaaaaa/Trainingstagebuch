@@ -76,10 +76,12 @@ function formatClock(ms, withHours) {
     : `${pad(Math.floor(total / 60))}:${pad(seconds)}`;
 }
 
-/** Gewicht eines Satzes: "60 kg", "Körpergewicht" oder "Körpergewicht + 5 kg". */
+/** Gewicht eines Satzes: "60 kg", "Körpergewicht (82 kg)" oder "Körpergewicht (82 kg) + 5 kg".
+ *  Das Körpergewicht steht dabei, wenn zu dem Zeitpunkt schon eins eingetragen war (set.body_kg). */
 function formatLoad(set) {
   if (!set.bodyweight) return `${numberFormat.format(set.weight)} kg`;
-  return set.weight > 0 ? `Körpergewicht + ${numberFormat.format(set.weight)} kg` : "Körpergewicht";
+  const body = set.body_kg ? `Körpergewicht (${numberFormat.format(set.body_kg)} kg)` : "Körpergewicht";
+  return set.weight > 0 ? `${body} + ${numberFormat.format(set.weight)} kg` : body;
 }
 
 /** Ein Satz als Text: "10 × 60 kg". */
@@ -179,7 +181,7 @@ const state = {
   session: null,                                  // laufendes Training (oder null)
   month: new Date(new Date().getFullYear(), new Date().getMonth(), 1),  // angezeigter Monat
   selectedDay: null,                              // im Kalender angetippter Tag
-  statsAll: false,                                // Statistik: false = Monat, true = alles
+  statsScope: "month",                            // Statistik: "last" = letztes Training, "month" = Monat, "all" = alles
 };
 
 class Timers {
@@ -295,6 +297,12 @@ function fold(id, title, content, { hint = null, badge = null } = {}) {
   return el;
 }
 
+/** Abfrage-Teil für den gewählten Statistik-Zeitraum (letztes Training, Monat oder alles). */
+function scopeQuery(monthKey) {
+  if (state.statsScope === "last") return "?last=1";
+  return state.statsScope === "month" ? `?month=${monthKey}` : "";
+}
+
 async function renderHome() {
   const year = state.month.getFullYear();
   const month = state.month.getMonth();
@@ -302,8 +310,8 @@ async function renderHome() {
 
   const [sessions, stats, analysis, bodyWeight, weights] = await Promise.all([
     Api.get(`/api/sessions?month=${monthKey}`),
-    Api.get(state.statsAll ? "/api/sessions/stats" : `/api/sessions/stats?month=${monthKey}`),
-    Api.get(state.statsAll ? "/api/sessions/analysis" : `/api/sessions/analysis?month=${monthKey}`),
+    Api.get(`/api/sessions/stats${scopeQuery(monthKey)}`),
+    Api.get(`/api/sessions/analysis${scopeQuery(monthKey)}`),
     Api.get("/api/bodyweight"),
     Api.get("/api/sessions/weights"),
   ]);
@@ -617,9 +625,10 @@ function buildMusclePie(muscles) {
 
 /** Zeigt unter der Statistik (im gleichen Zeitraum): bewegtes Gewicht im Zeitverlauf
  *  als Säulendiagramm und pro Übung Wiederholungen, Sätze und bewegtes Gewicht. */
-function buildAnalysis({ exercises, muscles, timeline }) {
+function buildAnalysis({ exercises, muscles, timeline }) {   // timeline ist beim letzten Training leer
   if (!exercises.length) return null;
-  const perDay = !state.statsAll;
+  const last = state.statsScope === "last";                       // nur das letzte Training: kein Zeitverlauf
+  const perDay = state.statsScope === "month";
   const label = (text, attrs) => { const el = svg("text", { class: "chart-label", ...attrs }); el.textContent = text; return el; };
   const labelOf = (key) => {                                    // Beschriftung unter der Säule
     const [year, month, day] = key.split("-");
@@ -628,7 +637,7 @@ function buildAnalysis({ exercises, muscles, timeline }) {
 
   // Säulendiagramm: bewegtes Gewicht pro Tag (Monat) bzw. pro Monat (Gesamt)
   const W = 320, H = 160, left = 8, right = 8, top = 22, bottom = 26;
-  const max = Math.max(...timeline.map((t) => t.volume)) || 1;
+  const max = Math.max(...timeline.map((t) => t.volume), 0) || 1;
   const slot = (W - left - right) / timeline.length;
   const barWidth = Math.max(2, slot * 0.7);
   const labelStep = Math.ceil(timeline.length / (perDay ? 8 : 6));    // nicht jede Säule beschriften
@@ -647,13 +656,15 @@ function buildAnalysis({ exercises, muscles, timeline }) {
   // Pro Übung: Balken nach Wiederholungen
   const maxReps = Math.max(...exercises.map((e) => e.reps));
   return h("section", { class: "analysis", "aria-label": "Auswertung" },
-    h("h3", {}, perDay ? "Bewegtes Gewicht pro Tag" : "Bewegtes Gewicht pro Monat"),
-    svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
-        "aria-label": `Bewegtes Gewicht, höchster Wert ${volumeFormat.format(max)} kg` },
-      svg("line", { class: "chart-grid", x1: left, x2: W - right, y1: H - bottom, y2: H - bottom }),
-      label(`max. ${volumeFormat.format(max)} kg`, { x: left, y: 12, "text-anchor": "start" }),
-      bars),
-    h("p", { class: "muted small" }, `${plural(sessionsTotal, "Training", "Trainings")} in diesem Zeitraum.`),
+    last ? null : [
+      h("h3", {}, perDay ? "Bewegtes Gewicht pro Tag" : "Bewegtes Gewicht pro Monat"),
+      svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
+          "aria-label": `Bewegtes Gewicht, höchster Wert ${volumeFormat.format(max)} kg` },
+        svg("line", { class: "chart-grid", x1: left, x2: W - right, y1: H - bottom, y2: H - bottom }),
+        label(`max. ${volumeFormat.format(max)} kg`, { x: left, y: 12, "text-anchor": "start" }),
+        bars),
+      h("p", { class: "muted small" }, `${plural(sessionsTotal, "Training", "Trainings")} in diesem Zeitraum.`),
+    ],
 
     withInfo(h("h3", {}, "Muskelgruppen (Anteil an den Wiederholungen)"),
       "Tippe auf ein Stück der Torte oder auf einen Eintrag darunter, um Prozent, Wiederholungen, Sätze und Gesamtgewicht zu sehen."),
@@ -777,23 +788,26 @@ function buildDayDetail(key, sessions) {
 /** Statistik ganz unten: bewegtes Gewicht pro Workout (Wiederholungen × Gewicht). */
 function buildStats(rows) {
   const total = rows.reduce((sum, row) => sum + row.volume, 0);
-  const switchButton = (label, showAll) => h("button", {
-    type: "button", class: "seg" + (state.statsAll === showAll ? " active" : ""),
-    onclick: () => { state.statsAll = showAll; route(); },
+  const switchButton = (label, scope) => h("button", {
+    type: "button", class: "seg" + (state.statsScope === scope ? " active" : ""),
+    onclick: () => { state.statsScope = scope; route(); },
   }, label);
 
-  const statsInfo = makeInfo("Bewegtes Gewicht = Wiederholungen × Gewicht. Bei Körpergewicht zählt nur das Zusatzgewicht.");
+  const statsInfo = makeInfo("Bewegtes Gewicht = Wiederholungen × Gewicht. Bei Körpergewicht zählt dein zuletzt "
+    + "eingetragenes Körpergewicht plus Zusatzgewicht; ohne eingetragenes Körpergewicht nur das Zusatzgewicht.");
   return h("section", { class: "stats", "aria-label": "Statistik" },
     h("div", { class: "stats-head" },
       h("div", { class: "info-row" }, h("h3", {}, "Statistik"), statsInfo[0]),
-      h("div", { class: "segmented" }, switchButton("Dieser Monat", false), switchButton("Gesamt", true))),
+      h("div", { class: "segmented" },
+        switchButton("Letztes Training", "last"), switchButton("Dieser Monat", "month"), switchButton("Gesamt", "all"))),
     rows.length
       ? h("div", { class: "sheet" },
           rows.map((row) => h("div", { class: "row" },
             h("i", { class: "dot lg", style: `background: ${row.color}` }),
             h("span", { class: "grow" },
               h("strong", {}, row.workout_name),
-              h("span", { class: "muted small block" }, plural(row.sessions, "Training", "Trainings"))),
+              h("span", { class: "muted small block" },
+                state.statsScope === "last" ? formatDay(dayKey(new Date(row.last_at))) : plural(row.sessions, "Training", "Trainings"))),
             h("span", { class: "volume" }, `${volumeFormat.format(row.volume)} kg`))),
           rows.length > 1
             ? h("div", { class: "row total" },

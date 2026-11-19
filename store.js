@@ -574,6 +574,31 @@ class SessionStore {
     return map;
   }
 
+  /** Letztes bekanntes Körpergewicht am oder vor einem Tag ("JJJJ-MM-TT"), sonst null. */
+  _bodyKgOn(day) {
+    let best = null;
+    for (const row of this.db.tables.body_weights) {
+      if (row.day <= day && (!best || row.day > best.day)) best = row;
+    }
+    return best ? best.kg : null;
+  }
+
+  /** Gewicht, das ein Satz bewegt hat: bei Körpergewichts-Sätzen das Körpergewicht (falls schon
+   *  eingetragen) plus Zusatzgewicht, sonst das eingetragene Gewicht. Grundlage aller Auswertungen. */
+  _load(entry) {
+    if (!entry.bodyweight) return entry.weight;
+    return entry.weight + (this._bodyKgOn(entry.logged_at.slice(0, 10)) ?? 0);
+  }
+
+  /** Trainings mit mindestens einem Satz, passend zum Zeitraum: nur ein Monat ("2026-11"),
+   *  nur das letzte Training (last = true) oder alle. */
+  _scopedSessions(bySession, month, last) {
+    const list = this.db.tables.sessions
+      .filter((s) => bySession.has(s.id) && (month == null || s.started_at.startsWith(month)));
+    if (!last) return list;
+    return list.sort((a, b) => timeOf(b.started_at) - timeOf(a.started_at) || b.id - a.id).slice(0, 1);
+  }
+
   /** Kurzfassung eines Trainings (für den Kalender). */
   _summary(session, setsBySession = this._setsBySession()) {
     const workout = this.db.tables.workouts.find((w) => w.id === session.workout_id);
@@ -584,7 +609,7 @@ class SessionStore {
       started_at: session.started_at, ended_at: session.ended_at ?? null,
       backfilled: Boolean(session.backfilled),
       set_count: sets.length,
-      total_volume: sets.reduce((sum, e) => sum + e.reps * e.weight, 0),
+      total_volume: sets.reduce((sum, e) => sum + e.reps * this._load(e), 0),
     };
   }
 
@@ -594,6 +619,7 @@ class SessionStore {
       id: entry.id, session_id: entry.session_id, exercise_id: entry.exercise_id,
       exercise_name: exercise.name, reps: entry.reps, weight: entry.weight,
       bodyweight: Boolean(entry.bodyweight), note: entry.note ?? null, logged_at: entry.logged_at,
+      body_kg: entry.bodyweight ? this._bodyKgOn(entry.logged_at.slice(0, 10)) : null,   // letztes bekanntes Körpergewicht
     };
   }
 
@@ -662,32 +688,33 @@ class SessionStore {
   }
 
   /** Pro Workout: Anzahl Trainings und bewegtes Gewicht (Wiederholungen x Gewicht).
-   *  Mit Monat nur dieser Monat, ohne Monat alle Trainings. */
-  stats(month) {
+   *  Mit Monat nur dieser Monat, mit last nur das letzte Training, sonst alle Trainings. */
+  stats(month, last = false) {
     if (month != null) SessionStore.checkMonth(month);
     const bySession = this._setsBySession();
     const rows = new Map();
-    for (const s of this.db.tables.sessions) {
-      if (!bySession.has(s.id) || (month != null && !s.started_at.startsWith(month))) continue;
+    for (const s of this._scopedSessions(bySession, month, last)) {
       const workout = this.db.tables.workouts.find((w) => w.id === s.workout_id);
       const row = rows.get(workout.id) || {
-        workout_id: workout.id, workout_name: workout.name, color: workout.color, sessions: 0, volume: 0,
+        workout_id: workout.id, workout_name: workout.name, color: workout.color, sessions: 0, volume: 0, last_at: s.started_at,
       };
       row.sessions += 1;
-      row.volume += bySession.get(s.id).reduce((sum, e) => sum + e.reps * e.weight, 0);
+      if (s.started_at > row.last_at) row.last_at = s.started_at;
+      row.volume += bySession.get(s.id).reduce((sum, e) => sum + e.reps * this._load(e), 0);
       rows.set(workout.id, row);
     }
     return [...rows.values()].sort((a, b) => b.volume - a.volume);
   }
 
-  /** Ausführliche Auswertung. Mit Monat ('2026-11') nur dieser Monat, sonst alles.
+  /** Ausführliche Auswertung. Mit Monat ('2026-11') nur dieser Monat, mit last nur das letzte Training, sonst alles.
    *  - exercises: pro Übung Sätze, Wiederholungen und bewegtes Gewicht
-   *  - timeline:  bewegtes Gewicht und Trainings pro Tag (Monat) bzw. pro Monat (Gesamt) */
-  analysis(month) {
+   *  - timeline:  bewegtes Gewicht und Trainings pro Tag (Monat) bzw. pro Monat (Gesamt); beim letzten Training leer
+   *  - latest:    beim letzten Training: Workout und Zeitpunkt, sonst null */
+  analysis(month, last = false) {
     if (month != null) SessionStore.checkMonth(month);
     const t = this.db.tables;
     const bySession = this._setsBySession();
-    const sessions = t.sessions.filter((s) => bySession.has(s.id) && (month == null || s.started_at.startsWith(month)));
+    const sessions = this._scopedSessions(bySession, month, last);
     const ids = new Set(sessions.map((s) => s.id));
 
     // Pro Übung
@@ -700,7 +727,7 @@ class SessionStore {
       };
       row.sets += 1;
       row.reps += e.reps;
-      row.volume += e.reps * e.weight;
+      row.volume += e.reps * this._load(e);
       perExercise.set(e.exercise_id, row);
     }
     // Pro Muskelgruppe (Hauptgruppe der Übung); ohne Zuordnung unter "Nicht zugeordnet"
@@ -718,7 +745,9 @@ class SessionStore {
 
     // Zeitverlauf: Behälter ("Tage" oder "Monate") vorbereiten, damit auch leere Zeiträume auftauchen
     const buckets = new Map();
-    if (month != null) {
+    if (last) {
+      // beim letzten Training gibt es keinen Zeitverlauf
+    } else if (month != null) {
       const [year, mon] = month.split("-").map(Number);
       const days = new Date(year, mon, 0).getDate();
       for (let d = 1; d <= days; d++) buckets.set(`${month}-${pad2(d)}`, { key: `${month}-${pad2(d)}`, volume: 0, sessions: 0 });
@@ -736,24 +765,28 @@ class SessionStore {
       const bucket = buckets.get(month != null ? s.started_at.slice(0, 10) : s.started_at.slice(0, 7));
       if (!bucket) continue;
       bucket.sessions += 1;
-      bucket.volume += bySession.get(s.id).reduce((sum, e) => sum + e.reps * e.weight, 0);
+      bucket.volume += bySession.get(s.id).reduce((sum, e) => sum + e.reps * this._load(e), 0);
     }
     const timeline = [...buckets.values()];
-    return { exercises, muscles, timeline: month != null ? timeline : timeline.slice(-24) };   // Gesamt: letzte 24 Monate
+    const latest = last && sessions[0]
+      ? { workout_name: t.workouts.find((w) => w.id === sessions[0].workout_id).name, started_at: sessions[0].started_at }
+      : null;
+    return { exercises, muscles, latest, timeline: month != null ? timeline : timeline.slice(-24) };   // Gesamt: letzte 24 Monate
   }
 
   /** Entwicklung der verwendeten Gewichte: pro Übung und Trainingstag das höchste Gewicht
-   *  (mit den Wiederholungen dazu). Nur Sätze mit Gewicht; älteste Tage zuerst. */
+   *  (mit den Wiederholungen dazu). Nur Sätze mit Gewicht (bei Körpergewicht samt Körpergewicht); älteste Tage zuerst. */
   weightProgress() {
     const t = this.db.tables;
     const perExercise = new Map();
     for (const entry of t.set_entries) {
-      if (!(entry.weight > 0)) continue;
+      const load = this._load(entry);
+      if (!(load > 0)) continue;
       const days = perExercise.get(entry.exercise_id) || new Map();
       const day = entry.logged_at.slice(0, 10);
       const best = days.get(day);
-      if (!best || entry.weight > best.weight || (entry.weight === best.weight && entry.reps > best.reps)) {
-        days.set(day, { day, weight: entry.weight, reps: entry.reps });
+      if (!best || load > best.weight || (load === best.weight && entry.reps > best.reps)) {
+        days.set(day, { day, weight: load, reps: entry.reps });
       }
       perExercise.set(entry.exercise_id, days);
     }
@@ -1211,9 +1244,9 @@ class LocalServer {
     ["PATCH",  /^\/api\/exercises\/(\d+)$/,                    (q, body, id) => library.update(id, body)],
     ["GET",    /^\/api\/exercises\/(\d+)\/history$/,             (q, body, id) => sessionStore.exerciseHistory(id)],
     ["GET",    /^\/api\/sessions\/active$/,                      () => sessionStore.getActive()],
-    ["GET",    /^\/api\/sessions\/stats$/,                       (q) => sessionStore.stats(q.get("month"))],
+    ["GET",    /^\/api\/sessions\/stats$/,                       (q) => sessionStore.stats(q.get("month"), q.get("last") === "1")],
     ["GET",    /^\/api\/sessions\/weights$/,                    () => sessionStore.weightProgress()],
-    ["GET",    /^\/api\/sessions\/analysis$/,                   (q) => sessionStore.analysis(q.get("month"))],
+    ["GET",    /^\/api\/sessions\/analysis$/,                   (q) => sessionStore.analysis(q.get("month"), q.get("last") === "1")],
     ["GET",    /^\/api\/sessions$/,                              (q) => sessionStore.getMonth(q.get("month"))],
     ["POST",   /^\/api\/sessions$/,                              (q, body) => sessionStore.start(body)],
     ["POST",   /^\/api\/sessions\/backfill$/,                    (q, body) => sessionStore.backfill(body)],
