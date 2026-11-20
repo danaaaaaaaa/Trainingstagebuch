@@ -544,8 +544,9 @@ function buildDataSection() {
  *  Ein Tipp auf ein Tortenstück oder einen Eintrag der Legende zeigt darunter Prozent,
  *  Wiederholungen, Sätze und das bewegte Gewicht der Gruppe. */
 function buildMusclePie(muscles) {
-  const COLORS = ["#c62f26", "#0b7f8c", "#b4590a", "#6d44c4", "#1b7f4b", "#b02a7e",
-    "#2f5fd0", "#8a8f1a", "#d98c00", "#5a6b7b", "#e0607e", "#3aa6a0"];
+  // Gedeckte, leicht gebrochene Farben für einen ruhigen Look
+  const COLORS = ["#b0584f", "#4f8791", "#a8742f", "#7b6aa6", "#55826a", "#a85d86",
+    "#5f7fb8", "#8c8f4a", "#c29a4a", "#6f7f8e", "#c9808f", "#5fa39e"];
   const percentFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
   const total = muscles.reduce((sum, m) => sum + m.reps, 0);
   const R = 90, C = 100;                                          // Radius und Mittelpunkt (Bild 200 x 200)
@@ -557,7 +558,7 @@ function buildMusclePie(muscles) {
     const slice = {
       ...m, share, start, end: start + share * 2 * Math.PI,
       name: m.muscle || "Nicht zugeordnet",
-      color: m.muscle ? (COLORS[i] || `hsl(${(i * 47) % 360} 55% 45%)`) : "#9aa3ad",
+      color: m.muscle ? (COLORS[i] || `hsl(${(i * 47) % 360} 28% 52%)`) : "#a3a8ae",
     };
     start = slice.end;
     return slice;

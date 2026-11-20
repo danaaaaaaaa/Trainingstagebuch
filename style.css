@@ -1,36 +1,50 @@
 /* =====================================================================
    Trainingstagebuch – Aussehen
-   Idee: Beton-Grau als Hintergrund, schwarze Intervall-Uhr oben (wie im Gym),
-   durchgeführte Workouts im Kalender als farbige Hantelscheiben.
+   Idee: ruhiges, helles iOS-Design. Flächen wie Karten, leicht durchscheinend
+   (Glas) auf einem zarten Farbverlauf; durchgeführte Workouts im Kalender als
+   farbige Scheiben. Wenig Linien, runde Ecken, viel Luft.
    Aufbau: 1. Farben/Schrift  2. Grundlagen  3. Bausteine  4. Ansichten
    ===================================================================== */
 
 /* ---------- 1. Farben und Schrift ---------- */
 :root {
-  --bg: #e6e9ec;          /* Beton */
-  --surface: #f8f9fa;     /* Listen und Felder */
-  --ink: #12161b;         /* Text */
-  --muted: #5b6570;       /* Nebentext */
-  --line: #cdd2d8;        /* feine Linien */
-  --accent: #2740ff;      /* heutiger Tag, Hauptknöpfe */
+  --bg: #f2f2f7;          /* Hintergrund (wie iOS "gruppiert") */
+  --surface: #ffffff;     /* Karten, Listen, Felder */
+  --ink: #1c1c1e;         /* Text */
+  --muted: #636366;       /* Nebentext */
+  --line: rgba(60, 60, 67, .18);        /* feine Linien */
+  --fill: rgba(120, 120, 128, .12);     /* graue Füllung für Felder und Tasten */
+  --glass: rgba(255, 255, 255, .68);    /* durchscheinende Flächen */
+  --glass-line: rgba(255, 255, 255, .7);/* heller Rand der Glasflächen */
+  --seg-active: #ffffff;                /* gewählter Reiter */
+  --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 12px 32px -16px rgba(20, 30, 60, .28);
+  --accent: #0a62f0;      /* heutiger Tag, Hauptknöpfe */
   --on-accent: #ffffff;
-  --bar: #0d1014;         /* obere Leiste */
-  --bar-ink: #f2f4f6;
-  --rest: #ffb824;        /* Ziffern der Pausenuhr */
-  --danger: #b3261e;
-  --font: "Bahnschrift", "DIN Alternate", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --bar: rgba(242, 242, 247, .72);      /* obere Leiste (durchscheinend) */
+  --bar-ink: #1c1c1e;
+  --rest: #b85c00;        /* Ziffern der Pausenuhr */
+  --danger: #c4261d;
+  --radius: 20px;         /* Karten */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, Roboto, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1215;
-    --surface: #181c21;
-    --ink: #eceff2;
-    --muted: #98a1ab;
-    --line: #2b3138;
-    --accent: #8f9cff;
-    --on-accent: #0d1014;
-    --bar: #05070a;
+    --bg: #0b0b0e;
+    --surface: #1c1c1e;
+    --ink: #f2f2f7;
+    --muted: #a1a1a8;
+    --line: rgba(255, 255, 255, .14);
+    --fill: rgba(120, 120, 128, .26);
+    --glass: rgba(44, 44, 48, .58);
+    --glass-line: rgba(255, 255, 255, .10);
+    --seg-active: #636366;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 14px 34px -16px rgba(0, 0, 0, .7);
+    --accent: #5aa2ff;
+    --on-accent: #04122b;
+    --bar: rgba(11, 11, 14, .72);
+    --bar-ink: #f2f2f7;
+    --rest: #ffb340;
     --danger: #ff8a80;
   }
 }
@@ -41,14 +55,20 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  /* zarter Farbverlauf, damit die Glasflächen etwas zum Durchscheinen haben */
+  background:
+    radial-gradient(90% 40% at 0% 0%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 70%),
+    radial-gradient(80% 40% at 100% 100%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--ink);
   font: 1rem/1.45 var(--font);
+  -webkit-font-smoothing: antialiased;
 }
 
 main { max-width: 720px; margin: 0 auto; padding: 20px 16px 64px; }
 
-h1 { font-size: clamp(1.8rem, 6vw, 2.3rem); line-height: 1.1; margin: 12px 0 18px; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.9rem, 7vw, 2.4rem); line-height: 1.1; margin: 12px 0 18px; letter-spacing: -0.025em; font-weight: 700; }
 h2, h3, p { margin: 0; }
 
 a { color: inherit; }
@@ -61,39 +81,41 @@ a { color: inherit; }
 
 /* ---------- 3. Bausteine ---------- */
 
-/* Obere Leiste mit den Uhren */
+/* Obere Leiste mit den Uhren: durchscheinend, der Inhalt scrollt weich darunter durch */
 .topbar {
   position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  min-height: 64px; padding: 8px 16px;
+  min-height: 56px; padding: 8px 16px;
   background: var(--bar); color: var(--bar-ink);
+  -webkit-backdrop-filter: saturate(180%) blur(22px); backdrop-filter: saturate(180%) blur(22px);
+  border-bottom: 1px solid var(--line);
 }
-.brand { font-weight: 700; font-size: 1.15rem; text-decoration: none; }
+.brand { font-weight: 700; font-size: 1.1rem; letter-spacing: -0.01em; text-decoration: none; }
 
 .timers { display: flex; gap: 18px; }
 .timer { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
-.timer-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.timer-label { font-size: .75rem; opacity: .65; }
+.timer-value { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.timer-label { font-size: .75rem; color: var(--muted); }
 .timer.rest .timer-value { color: var(--rest); }
 
-/* Knöpfe */
+/* Knöpfe: Hauptknopf gefüllt, sonst zarte Tönung in der Akzentfarbe (wie bei iOS) */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 52px; padding: 0 22px;
-  border: 2px solid var(--ink); border-radius: 14px;
-  background: transparent; color: var(--ink);
-  font: inherit; font-weight: 700; font-size: 1.05rem;
+  border: 0; border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent);
+  font: inherit; font-weight: 600; font-size: 1.05rem;
   text-decoration: none; cursor: pointer;
 }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.btn.big { width: 100%; min-height: 68px; font-size: 1.35rem; }
-.btn.quiet { border-color: transparent; color: var(--muted); min-height: 44px; padding: 0 12px; font-weight: 600; }
+.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn.big { width: 100%; min-height: 64px; font-size: 1.3rem; border-radius: 18px; }
+.btn.quiet { background: transparent; color: var(--muted); min-height: 44px; padding: 0 12px; font-weight: 600; }
 .btn.danger { color: var(--danger); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 
 .icon-btn {
   width: 48px; height: 48px; border-radius: 50%;
-  border: 2px solid var(--line); background: transparent; color: var(--ink);
+  border: 0; background: var(--fill); color: var(--ink);
   font: inherit; font-size: 1.5rem; line-height: 1; cursor: pointer;
 }
 .icon-x {
@@ -101,18 +123,18 @@ a { color: inherit; }
   color: var(--muted); font-size: 1.1rem; cursor: pointer; border-radius: 50%;
 }
 
-.back { display: inline-block; padding: 10px 0; color: var(--muted); text-decoration: none; font-weight: 600; }
+.back { display: inline-block; padding: 10px 0; color: var(--accent); text-decoration: none; font-weight: 600; }
 
-/* Eingabefelder */
+/* Eingabefelder: graue Füllung, beim Antippen heller mit Akzentrand */
 input[type=text], input[type=password], input[type=number], input[type=date], input[type=time] {
   width: 100%; min-height: 52px; padding: 0 14px;
-  border: 2px solid var(--line); border-radius: 12px;
-  background: var(--surface); color: var(--ink); font: inherit;
+  border: 2px solid transparent; border-radius: 14px;
+  background: var(--fill); color: var(--ink); font: inherit;
 }
-input:focus { border-color: var(--accent); outline: none; }
+input:focus { border-color: var(--accent); background: var(--surface); outline: none; }
 
-/* Gruppierte Listen: Zeilen getrennt durch feine Linien */
-.sheet { background: var(--surface); border-radius: 16px; overflow: hidden; }
+/* Gruppierte Listen: weiße Karte, Zeilen getrennt durch feine Linien */
+.sheet { background: var(--surface); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
 .sheet > * + * { border-top: 1px solid var(--line); }
 .row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; }
 
@@ -124,18 +146,21 @@ input:focus { border-color: var(--accent); outline: none; }
 .toast {
   position: fixed; left: 16px; right: 16px; bottom: 20px; z-index: 20;
   max-width: 480px; margin: 0 auto; padding: 14px 18px;
-  border-radius: 12px; background: var(--ink); color: var(--bg); font-weight: 600;
+  border-radius: 16px; background: color-mix(in srgb, var(--ink) 88%, transparent); color: var(--bg); font-weight: 600;
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: var(--shadow);
 }
 
 /* ---------- 4. Ansichten ---------- */
 
-/* Startseite: Hinweis auf laufendes Workout */
+/* Startseite: Hinweis auf laufendes Workout (Glaskarte mit Akzenttönung) */
 .running {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 14px 16px; border-radius: 16px; background: var(--bar); color: var(--bar-ink);
+  padding: 14px 16px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 14%, var(--glass)); border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); box-shadow: var(--shadow);
 }
 .running strong { display: block; font-size: 1.15rem; }
-.running .muted { color: var(--bar-ink); opacity: .65; }
+.running .muted { color: var(--muted); }
 
 .home-links { display: flex; justify-content: flex-end; margin: 4px 0 8px; }
 
@@ -148,11 +173,11 @@ input:focus { border-color: var(--accent); outline: none; }
 
 .day {
   display: grid; place-items: center; min-width: 0; padding: 5px 0;
-  border: 0; border-radius: 12px; background: transparent; color: var(--ink);
+  border: 0; border-radius: 14px; background: transparent; color: var(--ink);
   font: inherit; cursor: default;
 }
 .day.has { cursor: pointer; }
-.day.selected { background: var(--surface); box-shadow: inset 0 0 0 2px var(--ink); }
+.day.selected { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .day .num {
   display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
   font-weight: 600; font-size: 1.02rem; font-variant-numeric: tabular-nums;
@@ -168,19 +193,19 @@ input:focus { border-color: var(--accent); outline: none; }
 .legend span { display: inline-flex; align-items: center; gap: 8px; }
 
 /* Details zu einem Tag im Kalender */
-.detail { margin-top: 18px; background: var(--surface); border-radius: 16px; padding: 16px; }
+.detail { margin-top: 18px; background: var(--glass); border: 1px solid var(--glass-line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); }
 .detail h2 { font-size: 1.2rem; margin-bottom: 8px; }
 .detail-session + .detail-session { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .detail-head h3 { font-size: 1.1rem; }
 .detail-ex { margin-top: 10px; }
 .setchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-.setchip { padding: 3px 10px; border-radius: 999px; background: var(--bg); font-variant-numeric: tabular-nums; font-size: .95rem; }
+.setchip { padding: 3px 10px; border-radius: 999px; background: var(--fill); font-variant-numeric: tabular-nums; font-size: .95rem; }
 
 /* Workout auswählen */
-.choice { display: flex; align-items: center; gap: 14px; padding: 16px; cursor: pointer; border-left: 6px solid transparent; }
+.choice { display: flex; align-items: center; gap: 14px; padding: 16px; cursor: pointer; border-left: 4px solid transparent; }
 .choice input { position: absolute; opacity: 0; pointer-events: none; }
-.choice.selected { background: var(--bg); border-left-color: var(--accent); }
+.choice.selected { background: color-mix(in srgb, var(--accent) 10%, transparent); border-left-color: var(--accent); }
 .choice:focus-within { outline: 3px solid var(--accent); outline-offset: -3px; }
 .choice-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .choice-main strong { font-size: 1.2rem; }
@@ -188,16 +213,16 @@ input:focus { border-color: var(--accent); outline: none; }
 
 /* Übungsliste im laufenden Training */
 .exercise-list { list-style: none; margin: 0; padding: 0; }
-.exercise-row { display: flex; align-items: center; gap: 16px; min-height: 72px; padding: 12px 16px; text-decoration: none; }
+.exercise-row { display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 12px 16px; text-decoration: none; }
 .exercise-row .no { width: 2ch; font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
-.exercise-row .name { flex: 1; font-size: 1.2rem; font-weight: 600; }
+.exercise-row .name { flex: 1; min-width: 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
 .chip { padding: 4px 12px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: .9rem; }
 .chev { color: var(--muted); font-size: 1.6rem; }
 .finish { margin-top: 28px; text-align: center; }
 
 /* Übung: Satz eintragen */
-.hero { display: block; width: 100%; max-height: 240px; object-fit: cover; border-radius: 16px; margin-bottom: 16px; }
-.set-panel { background: var(--surface); border: 2px solid var(--ink); border-radius: 20px; padding: 18px; }
+.hero { display: block; width: 100%; max-height: 240px; object-fit: cover; border-radius: var(--radius); margin-bottom: 16px; box-shadow: var(--shadow); }
+.set-panel { background: var(--glass); border: 1px solid var(--glass-line); border-radius: 24px; padding: 18px; box-shadow: var(--shadow); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); }
 .set-panel h2 { font-size: 1.6rem; margin-bottom: 12px; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .field > label { display: block; color: var(--muted); font-size: .9rem; margin-bottom: 4px; }
@@ -206,8 +231,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .step-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .step {
-  min-height: 52px; border: 2px solid var(--line); border-radius: 12px;
-  background: var(--bg); color: var(--ink); font: inherit; font-size: 1.7rem; font-weight: 700; cursor: pointer;
+  min-height: 52px; border: 0; border-radius: 14px;
+  background: var(--fill); color: var(--ink); font: inherit; font-size: 1.7rem; font-weight: 600; cursor: pointer;
 }
 .set-panel .btn { width: 100%; margin-top: 16px; min-height: 60px; font-size: 1.2rem; }
 
@@ -228,7 +253,7 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 .workout { margin-top: 28px; }
 .workout-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .workout-head h2 { flex: 1; font-size: 1.35rem; }
-.thumb { flex: none; width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--bg); }
+.thumb { flex: none; width: 48px; height: 48px; border-radius: 12px; object-fit: cover; background: var(--fill); }
 .add-exercise { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
 .add-exercise .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .add-exercise .btn { min-height: 48px; font-size: 1rem; }
@@ -262,17 +287,17 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 .stats-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
 .stats-head h2 { font-size: 1.3rem; }
 .stats > p { margin-top: 10px; }
-.segmented { display: inline-flex; overflow: hidden; border: 2px solid var(--line); border-radius: 12px; }
-.seg { min-height: 44px; padding: 0 14px; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
-.seg.active { background: var(--ink); color: var(--bg); }
+.segmented { display: inline-flex; gap: 2px; padding: 3px; border-radius: 12px; background: var(--fill); }
+.seg { min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.seg.active { background: var(--seg-active); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .16); }
 .volume { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.row.total { background: var(--bg); }
+.row.total { background: var(--fill); }
 .block { display: block; }
 
 /* Übungsliste: Tauschen-Knopf an der Seite */
 .exercise-item { display: flex; align-items: stretch; }
 .exercise-item .exercise-row { flex: 1; min-width: 0; }
-.swap-link { display: flex; align-items: center; padding: 0 16px; border-left: 1px solid var(--line); color: var(--muted); font-weight: 600; text-decoration: none; }
+.swap-link { display: flex; align-items: center; padding: 0 12px; border-left: 1px solid var(--line); color: var(--muted); font-weight: 600; text-decoration: none; }
 
 /* Übung: Titelzeile, Körpergewicht, Anmerkung */
 .title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -287,7 +312,7 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; max-height: 168px; overflow-y: auto; padding: 2px; }
 .suggestion {
   display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
-  border: 2px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink);
+  border: 0; border-radius: 999px; background: var(--fill); color: var(--ink);
   font: inherit; font-weight: 600; cursor: pointer;
 }
 .suggestion .mini { width: 28px; height: 28px; margin-left: -8px; border-radius: 50%; object-fit: cover; }
@@ -298,7 +323,7 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 
 .progress { margin-top: 28px; }
 .progress h3 { font-size: 1.05rem; margin-bottom: 6px; }
-.chart { display: block; width: 100%; height: auto; background: var(--surface); border-radius: 14px; }
+.chart { display: block; width: 100%; height: auto; background: var(--surface); border-radius: 16px; }
 .chart-grid { stroke: var(--line); stroke-width: 1; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 .chart-dot { fill: var(--accent); }
@@ -334,12 +359,12 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 
 /* Muskelgruppen */
 .muscle-field { display: block; margin: 10px 0; }
-select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: inherit; max-width: 100%; }
+select { font: inherit; padding: 10px 12px; border: 0; border-radius: 12px; background: var(--fill); color: inherit; max-width: 100%; }
 .muscle-field select { display: block; width: 100%; margin-top: 4px; }
 
 /* Reihenfolge und Supersätze */
 .exercise-entry { display: block; }
-.exercise-entry.superset { border-left: 5px solid var(--accent); }
+.exercise-entry.superset { border-left: 4px solid var(--accent); }
 .exercise-entry.cont { border-top: 1px dashed var(--line); }
 .exercise-row .no { min-width: 2.4ch; width: auto; }
 .order-tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px; }
@@ -353,28 +378,28 @@ select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); borde
 .pie-slice.active path, .pie-slice.active circle { stroke: var(--ink); stroke-width: 2; }
 .pie-legend { list-style: none; margin: 0; padding: 0; }
 .legend-entry { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.legend-entry.active { background: var(--line); font-weight: 700; }
+.legend-entry.active { background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 700; }
 .swatch { display: inline-block; flex: none; width: 14px; height: 14px; margin-right: 8px; border-radius: 4px; vertical-align: -1px; }
 .legend-entry .swatch { margin-right: 0; }
-.pie-detail { margin-top: 8px; padding: 12px 16px; border-radius: 14px; background: var(--surface); }
+.pie-detail { margin-top: 8px; padding: 12px 16px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
 .pie-facts dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 10px 0 0; }
 .pie-facts dt { color: var(--muted); }
 .pie-facts dd { margin: 0; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Aufklappbare Bereiche der Startseite */
 .folds { display: grid; gap: 10px; margin-top: 28px; }
-.fold { border-radius: 16px; background: var(--surface); overflow: hidden; box-shadow: 0 1px 0 var(--line); }
+.fold { border-radius: var(--radius); background: var(--glass); border: 1px solid var(--glass-line); overflow: hidden; box-shadow: var(--shadow); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); }
 .fold > summary { display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 0 16px; cursor: pointer; list-style: none; }
 .fold > summary::-webkit-details-marker { display: none; }
 .fold > summary::after { content: "›"; margin-left: auto; font-size: 1.6rem; line-height: 1; color: var(--muted); transition: transform .2s; }
 .fold[open] > summary::after { transform: rotate(90deg); }
-.fold[open] > summary { border-bottom: 1px solid var(--line); box-shadow: inset 4px 0 0 var(--accent); }
-.fold-title { font-size: 1.1rem; font-weight: 700; }
+.fold[open] > summary { border-bottom: 1px solid var(--line); }
+.fold-title { font-size: 1.1rem; font-weight: 650; letter-spacing: -0.01em; }
 .fold-hint { color: var(--muted); font-size: .9rem; }
-.fold-badge { padding: 3px 10px; border-radius: 999px; background: var(--rest); color: var(--bar); font-size: .8rem; font-weight: 700; }
+.fold-badge { padding: 3px 10px; border-radius: 999px; background: #ffb340; color: #1c1c1e; font-size: .8rem; font-weight: 700; }
 .fold-body { padding: 8px 16px 18px; }
 .fold-body .stats, .fold-body .analysis, .fold-body .bodyweight, .fold-body .data { margin-top: 12px; }
-.fold-body .sheet { background: var(--bg); }
+.fold-body .sheet { background: var(--fill); box-shadow: none; }
 .fold-body .stats-head h3 { font-size: 1.1rem; }
 .progress-select { width: 100%; margin: 10px 0 4px; }
 .chart-dot[role="button"] { cursor: pointer; }
@@ -414,7 +439,7 @@ button, .btn, .step { -webkit-user-select: none; user-select: none; }
 }
 .info-btn::before { content: ""; position: absolute; inset: -10px; }       /* größere Tippfläche */
 .info-btn[aria-expanded="true"] { background: var(--muted); color: var(--bg); }
-.info-text { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); font-size: .9rem; }
+.info-text { margin-top: 8px; padding: 10px 12px; border-radius: 14px; background: var(--fill); color: var(--muted); font-size: .9rem; }
 .pie-detail:empty { display: none; }
 .stats-head .info-row { flex: none; }
 .stats-head .info-row > h3 { flex: none; }
@@ -456,7 +481,7 @@ main { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16
 }
 
 /* Hinweis auf mögliche Gewichtssteigerung */
-.progress-hint { margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; border-left: 5px solid var(--accent); background: var(--surface); line-height: 1.4; }
+.progress-hint { margin: 0 0 14px; padding: 12px 14px; border-radius: 16px; border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); line-height: 1.4; }
 
 /* Übungsliste (Muskelgruppen): Name in eigener Zeile, darunter Auswahl und "Ändern" */
 .edit-row { flex-wrap: wrap; gap: 8px 12px; }
@@ -466,3 +491,9 @@ main { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16
 /* Statistik-Reiter (Letztes Training / Monat / Gesamt): eigene Zeile, drei gleich breite Felder */
 .stats-head .segmented { flex: 1 1 100%; }
 .stats-head .seg { flex: 1; padding: 0 6px; white-space: nowrap; }
+
+
+/* ---------- Ohne Glas-Effekt (ältere Browser): Flächen einfach deckend ---------- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --glass: var(--surface); --bar: var(--bg); }
+}

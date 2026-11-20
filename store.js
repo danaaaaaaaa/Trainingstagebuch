@@ -205,6 +205,7 @@ class Database {
     this.tables = Object.assign(Database.emptyTables(), read.tables || {});
     this.meta = read.meta || {};
     Database.migrateMuscles(this.tables);
+    Database.migrateColors(this.tables);
     Database.normalizeSessionExercises(this.tables);
     this.images = Object.fromEntries(read.keys.map((key, i) => [key, read.values[i]]));
     this.dirtyImages.clear();
@@ -212,6 +213,13 @@ class Database {
 
   /** Ältere Namen der Muskelgruppen auf die heutigen umstellen.
    *  "Beine" wurde aufgeteilt und lässt sich nicht automatisch zuordnen (danach: keine Zuordnung). */
+  /** Ersetzt die früheren kräftigen Workout-Farben durch die gedeckten. */
+  static migrateColors(tables) {
+    for (const workout of tables.workouts) {
+      workout.color = WorkoutStore.OLD_COLORS[workout.color.toLowerCase()] ?? workout.color;
+    }
+  }
+
   static migrateMuscles(tables) {
     const renamed = {
       "Oberschenkel vorne": "Quadrizeps",
@@ -441,7 +449,13 @@ class ExerciseLibrary {
  *  entfernen und umsortieren. */
 class WorkoutStore {
   // Farben für den Kalender; jedes neue Workout bekommt die nächste Farbe
-  static COLORS = ["#c62f26", "#b4590a", "#1b7f4b", "#0b7f8c", "#6d44c4", "#b02a7e"];
+  // Gedeckte Farben (genug Kontrast für weiße Schrift auf der Kalenderscheibe)
+  static COLORS = ["#b0584f", "#a8742f", "#55826a", "#4f8791", "#7b6aa6", "#a85d86"];
+  // Frühere, kräftigere Farben -> gedeckte Entsprechung (für bereits angelegte Workouts)
+  static OLD_COLORS = {
+    "#c62f26": "#b0584f", "#b4590a": "#a8742f", "#1b7f4b": "#55826a",
+    "#0b7f8c": "#4f8791", "#6d44c4": "#7b6aa6", "#b02a7e": "#a85d86",
+  };
 
   constructor(db, library) {
     this.db = db;
@@ -1176,6 +1190,7 @@ class Backup {
     }
 
     Database.migrateMuscles(tables);
+    Database.migrateColors(tables);
     Database.normalizeSessionExercises(tables);         // fehlende Positionen ergänzen (ältere Sicherungen)
 
     // Muskelgruppen der Übungen: muss eine feste oder eigene Gruppe sein ("Beine" aus alten Sicherungen wird entfernt)
