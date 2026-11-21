@@ -213,7 +213,7 @@ class Database {
 
   /** Ältere Namen der Muskelgruppen auf die heutigen umstellen.
    *  "Beine" wurde aufgeteilt und lässt sich nicht automatisch zuordnen (danach: keine Zuordnung). */
-  /** Ersetzt die früheren kräftigen Workout-Farben durch die gedeckten. */
+  /** Ersetzt frühere Workout-Farben durch die aktuellen. */
   static migrateColors(tables) {
     for (const workout of tables.workouts) {
       workout.color = WorkoutStore.OLD_COLORS[workout.color.toLowerCase()] ?? workout.color;
@@ -449,12 +449,14 @@ class ExerciseLibrary {
  *  entfernen und umsortieren. */
 class WorkoutStore {
   // Farben für den Kalender; jedes neue Workout bekommt die nächste Farbe
-  // Gedeckte Farben (genug Kontrast für weiße Schrift auf der Kalenderscheibe)
-  static COLORS = ["#b0584f", "#a8742f", "#55826a", "#4f8791", "#7b6aa6", "#a85d86"];
-  // Frühere, kräftigere Farben -> gedeckte Entsprechung (für bereits angelegte Workouts)
+  // Kräftige, aber nicht grelle Farben (genug Kontrast für weiße Schrift auf der Kalenderscheibe)
+  static COLORS = ["#d2453a", "#d17a10", "#2f9560", "#178aa0", "#7a5ad0", "#c8438f"];
+  // Frühere Farben (erst sehr kräftig, dann sehr blass) -> aktuelle Entsprechung für bereits angelegte Workouts
   static OLD_COLORS = {
-    "#c62f26": "#b0584f", "#b4590a": "#a8742f", "#1b7f4b": "#55826a",
-    "#0b7f8c": "#4f8791", "#6d44c4": "#7b6aa6", "#b02a7e": "#a85d86",
+    "#c62f26": "#d2453a", "#b4590a": "#d17a10", "#1b7f4b": "#2f9560",
+    "#0b7f8c": "#178aa0", "#6d44c4": "#7a5ad0", "#b02a7e": "#c8438f",
+    "#b0584f": "#d2453a", "#a8742f": "#d17a10", "#55826a": "#2f9560",
+    "#4f8791": "#178aa0", "#7b6aa6": "#7a5ad0", "#a85d86": "#c8438f",
   };
 
   constructor(db, library) {

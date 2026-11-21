@@ -544,9 +544,9 @@ function buildDataSection() {
  *  Ein Tipp auf ein Tortenstück oder einen Eintrag der Legende zeigt darunter Prozent,
  *  Wiederholungen, Sätze und das bewegte Gewicht der Gruppe. */
 function buildMusclePie(muscles) {
-  // Gedeckte, leicht gebrochene Farben für einen ruhigen Look
-  const COLORS = ["#b0584f", "#4f8791", "#a8742f", "#7b6aa6", "#55826a", "#a85d86",
-    "#5f7fb8", "#8c8f4a", "#c29a4a", "#6f7f8e", "#c9808f", "#5fa39e"];
+  // Kräftige, aber nicht grelle Farben (gleiche Reihenfolge wie die Workout-Farben zuerst)
+  const COLORS = ["#d2453a", "#178aa0", "#d17a10", "#7a5ad0", "#2f9560", "#c8438f",
+    "#3d72d8", "#8f9a22", "#e0a526", "#5d7388", "#e5708a", "#28a89f"];
   const percentFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
   const total = muscles.reduce((sum, m) => sum + m.reps, 0);
   const R = 90, C = 100;                                          // Radius und Mittelpunkt (Bild 200 x 200)
@@ -558,7 +558,7 @@ function buildMusclePie(muscles) {
     const slice = {
       ...m, share, start, end: start + share * 2 * Math.PI,
       name: m.muscle || "Nicht zugeordnet",
-      color: m.muscle ? (COLORS[i] || `hsl(${(i * 47) % 360} 28% 52%)`) : "#a3a8ae",
+      color: m.muscle ? (COLORS[i] || `hsl(${(i * 47) % 360} 50% 50%)`) : "#a3a8ae",
     };
     start = slice.end;
     return slice;
@@ -1052,6 +1052,19 @@ async function buildExercisePage(session, exerciseId) {
   }
   syncWeightField();
 
+  // Zahlenfelder für Wiederholungen und Gewicht
+  const fieldsBox = h("div", { class: "fields" },
+    numberField(h("label", { for: "field-reps" }, "Wiederholungen"), reps, [-1, 1], 1, "Wiederholungen"),
+    numberField(weightLabel, weight, [2.5, 5, 10, -2.5, -5, -10], 0, "Gewicht"));
+
+  // Öffnet sich für die Anmerkung die Tastatur, scrollt iOS oft von selbst ganz nach unten. Wir richten die
+  // Seite deshalb mehrmals neu aus, damit Wiederholungen und Gewicht oben sichtbar bleiben.
+  note.addEventListener("focus", () => {
+    const realign = () => { if (document.activeElement === note) fieldsBox.scrollIntoView({ block: "start" }); };
+    [60, 350, 700].forEach((ms) => setTimeout(realign, ms));
+    window.visualViewport?.addEventListener("resize", realign, { once: true });
+  });
+
   const form = h("form", {
     class: "set-panel",
     onsubmit: (event) => {
@@ -1067,9 +1080,7 @@ async function buildExercisePage(session, exerciseId) {
     },
   },
     h("h2", {}, `Satz ${doneHere + 1}`),
-    h("div", { class: "fields" },
-      numberField(h("label", { for: "field-reps" }, "Wiederholungen"), reps, [-1, 1], 1, "Wiederholungen"),
-      numberField(weightLabel, weight, [2.5, 5, 10, -2.5, -5, -10], 0, "Gewicht")),
+    fieldsBox,
     h("label", { class: "check" }, bodyweight, "Körpergewicht (z. B. Klimmzüge)"),
     note,
     saveButton);
@@ -1582,6 +1593,12 @@ async function route() {
 }
 
 window.addEventListener("hashchange", () => { window.scrollTo(0, 0); route(); });
+
+// "Schütteln zum Widerrufen" (iOS): die Rückgängig-Aktion im Textfeld wird unterbunden.
+// Ob iOS trotzdem kurz einen Dialog zeigt, steuert das System (siehe Einstellungen, Bedienungshilfen).
+document.addEventListener("beforeinput", (event) => {
+  if (event.inputType === "historyUndo" || event.inputType === "historyRedo") event.preventDefault();
+});
 setInterval(() => Timers.update(), 1000);
 route();
 
