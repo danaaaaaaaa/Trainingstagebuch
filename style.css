@@ -17,13 +17,13 @@
   --glass: rgba(255, 255, 255, .34);    /* durchscheinende Flächen */
   --glass-strong: rgba(255, 255, 255, .66); /* Listen (etwas dichter) */
   --glass-line: rgba(255, 255, 255, .75);/* heller Rand der Glasflächen */
-  --wash-a: rgba(10, 92, 255, .42);     /* Farbflächen im Hintergrund, durch die das Glas scheint */
-  --wash-b: rgba(150, 80, 255, .36);
-  --wash-c: rgba(0, 190, 170, .34);
-  --wash-d: rgba(255, 140, 60, .34);
+  --wash-a: rgba(30, 100, 230, .27);     /* Farbflächen im Hintergrund, durch die das Glas scheint */
+  --wash-b: rgba(60, 150, 200, .17);
+  --wash-c: rgba(0, 160, 150, .20);
+  --wash-d: rgba(235, 175, 110, .17);
   --seg-active: #ffffff;                /* gewählter Reiter */
   --shadow: inset 0 1px 0 rgba(255, 255, 255, .65), 0 1px 2px rgba(0, 0, 0, .04), 0 14px 34px -14px rgba(30, 40, 110, .32);
-  --accent: #0a5cff;      /* heutiger Tag, Hauptknöpfe */
+  --accent: #1f66e5;      /* heutiger Tag, Hauptknöpfe */
   --on-accent: #ffffff;
   --bar: rgba(242, 242, 247, .55);      /* obere Leiste (durchscheinend) */
   --bar-ink: #1c1c1e;
@@ -44,13 +44,13 @@
     --glass: rgba(72, 74, 94, .38);
     --glass-strong: rgba(52, 54, 70, .62);
     --glass-line: rgba(255, 255, 255, .16);
-    --wash-a: rgba(40, 110, 255, .40);
-    --wash-b: rgba(130, 70, 255, .32);
-    --wash-c: rgba(0, 170, 160, .22);
-    --wash-d: rgba(255, 120, 50, .16);
+    --wash-a: rgba(40, 110, 230, .32);
+    --wash-b: rgba(50, 120, 190, .22);
+    --wash-c: rgba(0, 150, 140, .18);
+    --wash-d: rgba(200, 130, 60, .12);
     --seg-active: #636366;
     --shadow: inset 0 1px 0 rgba(255, 255, 255, .10), 0 1px 2px rgba(0, 0, 0, .3), 0 14px 34px -14px rgba(0, 0, 0, .75);
-    --accent: #4c9bff;
+    --accent: #5a9cf0;
     --on-accent: #04122b;
     --bar: rgba(11, 11, 14, .5);
     --bar-ink: #f2f2f7;

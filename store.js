@@ -449,14 +449,16 @@ class ExerciseLibrary {
  *  entfernen und umsortieren. */
 class WorkoutStore {
   // Farben für den Kalender; jedes neue Workout bekommt die nächste Farbe
-  // Kräftige, aber nicht grelle Farben (genug Kontrast für weiße Schrift auf der Kalenderscheibe)
-  static COLORS = ["#d2453a", "#d17a10", "#2f9560", "#178aa0", "#7a5ad0", "#c8438f"];
-  // Frühere Farben (erst sehr kräftig, dann sehr blass) -> aktuelle Entsprechung für bereits angelegte Workouts
+  // Gedämpfte, aber noch lebendige Farben (genug Kontrast für weiße Schrift auf der Kalenderscheibe)
+  static COLORS = ["#c14e44", "#b87a2a", "#428b65", "#338898", "#7866ae", "#b05a85"];
+  // Frühere Farben (sehr kräftig, sehr blass, kräftig) -> aktuelle Entsprechung für bereits angelegte Workouts
   static OLD_COLORS = {
-    "#c62f26": "#d2453a", "#b4590a": "#d17a10", "#1b7f4b": "#2f9560",
-    "#0b7f8c": "#178aa0", "#6d44c4": "#7a5ad0", "#b02a7e": "#c8438f",
-    "#b0584f": "#d2453a", "#a8742f": "#d17a10", "#55826a": "#2f9560",
-    "#4f8791": "#178aa0", "#7b6aa6": "#7a5ad0", "#a85d86": "#c8438f",
+    "#c62f26": "#c14e44", "#b4590a": "#b87a2a", "#1b7f4b": "#428b65",
+    "#0b7f8c": "#338898", "#6d44c4": "#7866ae", "#b02a7e": "#b05a85",
+    "#b0584f": "#c14e44", "#a8742f": "#b87a2a", "#55826a": "#428b65",
+    "#4f8791": "#338898", "#7b6aa6": "#7866ae", "#a85d86": "#b05a85",
+    "#d2453a": "#c14e44", "#d17a10": "#b87a2a", "#2f9560": "#428b65",
+    "#178aa0": "#338898", "#7a5ad0": "#7866ae", "#c8438f": "#b05a85",
   };
 
   constructor(db, library) {

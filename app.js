@@ -544,9 +544,9 @@ function buildDataSection() {
  *  Ein Tipp auf ein Tortenstück oder einen Eintrag der Legende zeigt darunter Prozent,
  *  Wiederholungen, Sätze und das bewegte Gewicht der Gruppe. */
 function buildMusclePie(muscles) {
-  // Kräftige, aber nicht grelle Farben (gleiche Reihenfolge wie die Workout-Farben zuerst)
-  const COLORS = ["#d2453a", "#178aa0", "#d17a10", "#7a5ad0", "#2f9560", "#c8438f",
-    "#3d72d8", "#8f9a22", "#e0a526", "#5d7388", "#e5708a", "#28a89f"];
+  // Gedämpfte, aber noch lebendige Farben
+  const COLORS = ["#c14e44", "#338898", "#b87a2a", "#7866ae", "#428b65", "#b05a85",
+    "#4e79c8", "#8d9436", "#d1a238", "#667b8b", "#d87888", "#44a59f"];
   const percentFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
   const total = muscles.reduce((sum, m) => sum + m.reps, 0);
   const R = 90, C = 100;                                          // Radius und Mittelpunkt (Bild 200 x 200)
