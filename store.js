@@ -603,9 +603,16 @@ class SessionStore {
 
   /** Gewicht, das ein Satz bewegt hat: bei Körpergewichts-Sätzen das Körpergewicht (falls schon
    *  eingetragen) plus Zusatzgewicht, sonst das eingetragene Gewicht. Grundlage aller Auswertungen. */
-  _load(entry) {
-    if (!entry.bodyweight) return entry.weight;
-    return entry.weight + (this._bodyKgOn(entry.logged_at.slice(0, 10)) ?? 0);
+  _load(entry, weight = entry.weight) {
+    if (!entry.bodyweight) return weight;
+    return weight + (this._bodyKgOn(entry.logged_at.slice(0, 10)) ?? 0);
+  }
+
+  /** Bewegtes Gesamtgewicht eines Satzes (Wiederholungen × Gewicht), inklusive des optionalen
+   *  Teils mit reduziertem Gewicht ("Dropset"). */
+  _volume(entry) {
+    const drop = entry.drop_reps ? entry.drop_reps * this._load(entry, entry.drop_weight ?? 0) : 0;
+    return entry.reps * this._load(entry) + drop;
   }
 
   /** Trainings mit mindestens einem Satz, passend zum Zeitraum: nur ein Monat ("2026-11"),
@@ -627,7 +634,7 @@ class SessionStore {
       started_at: session.started_at, ended_at: session.ended_at ?? null,
       backfilled: Boolean(session.backfilled),
       set_count: sets.length,
-      total_volume: sets.reduce((sum, e) => sum + e.reps * this._load(e), 0),
+      total_volume: sets.reduce((sum, e) => sum + this._volume(e), 0),
     };
   }
 
@@ -637,6 +644,7 @@ class SessionStore {
       id: entry.id, session_id: entry.session_id, exercise_id: entry.exercise_id,
       exercise_name: exercise.name, reps: entry.reps, weight: entry.weight,
       bodyweight: Boolean(entry.bodyweight), note: entry.note ?? null, logged_at: entry.logged_at,
+      drop_reps: entry.drop_reps ?? null, drop_weight: entry.drop_reps ? entry.drop_weight ?? 0 : null,
       body_kg: entry.bodyweight ? this._bodyKgOn(entry.logged_at.slice(0, 10)) : null,   // letztes bekanntes Körpergewicht
     };
   }
@@ -718,7 +726,7 @@ class SessionStore {
       };
       row.sessions += 1;
       if (s.started_at > row.last_at) row.last_at = s.started_at;
-      row.volume += bySession.get(s.id).reduce((sum, e) => sum + e.reps * this._load(e), 0);
+      row.volume += bySession.get(s.id).reduce((sum, e) => sum + this._volume(e), 0);
       rows.set(workout.id, row);
     }
     return [...rows.values()].sort((a, b) => b.volume - a.volume);
@@ -744,8 +752,8 @@ class SessionStore {
         sets: 0, reps: 0, volume: 0,
       };
       row.sets += 1;
-      row.reps += e.reps;
-      row.volume += e.reps * this._load(e);
+      row.reps += e.reps + (e.drop_reps || 0);
+      row.volume += this._volume(e);
       perExercise.set(e.exercise_id, row);
     }
     // Pro Muskelgruppe (Hauptgruppe der Übung); ohne Zuordnung unter "Nicht zugeordnet"
@@ -783,7 +791,7 @@ class SessionStore {
       const bucket = buckets.get(month != null ? s.started_at.slice(0, 10) : s.started_at.slice(0, 7));
       if (!bucket) continue;
       bucket.sessions += 1;
-      bucket.volume += bySession.get(s.id).reduce((sum, e) => sum + e.reps * this._load(e), 0);
+      bucket.volume += bySession.get(s.id).reduce((sum, e) => sum + this._volume(e), 0);
     }
     const timeline = [...buckets.values()];
     const latest = last && sessions[0]
@@ -832,9 +840,10 @@ class SessionStore {
         const exercise = t.exercises.find((x) => x.id === e.exercise_id);
         const [day, clock] = e.logged_at.split("T");
         return [day, clock.slice(0, 5), safe(workout.name), safe(exercise.name), String(e.reps),
-          String(e.weight).replace(".", ","), e.bodyweight ? "ja" : "nein", safe(e.note)];
+          String(e.weight).replace(".", ","), e.bodyweight ? "ja" : "nein", safe(e.note),
+          e.drop_reps ? String(e.drop_reps) : "", e.drop_reps ? String(e.drop_weight ?? 0).replace(".", ",") : ""];
       });
-    const header = ["Datum", "Uhrzeit", "Workout", "Übung", "Wiederholungen", "Gewicht_kg", "Körpergewicht", "Notiz"];
+    const header = ["Datum", "Uhrzeit", "Workout", "Übung", "Wiederholungen", "Gewicht_kg", "Körpergewicht", "Notiz", "Reduziert_Wdh", "Reduziert_Gewicht_kg"];
     return [header, ...rows].map((row) => row.map(cell).join(";")).join("\r\n") + "\r\n";
   }
 
@@ -1013,6 +1022,11 @@ class SessionStore {
         || typeof weight !== "number" || !(weight >= 0 && weight <= 1000)
         || (d.bodyweight != null && typeof d.bodyweight !== "boolean")
         || (note != null && note.length > 200)) throw invalid();
+    // Optional: weitere Wiederholungen mit reduziertem Gewicht im selben Satz
+    const dropReps = d.drop_reps ?? null;
+    const dropWeight = d.drop_weight ?? 0;
+    if (dropReps != null && (!Number.isInteger(dropReps) || dropReps < 1 || dropReps > 1000
+        || typeof dropWeight !== "number" || !(dropWeight >= 0 && dropWeight <= 1000))) throw invalid();
 
     const session = this._editable(sessionId);
     const t = this.db.tables;
@@ -1024,6 +1038,7 @@ class SessionStore {
       reps: d.reps, weight, bodyweight: d.bodyweight ? 1 : 0, note: note || null,
       logged_at: session.backfilled ? session.started_at : nowIso(),
     };
+    if (dropReps != null) { entry.drop_reps = dropReps; entry.drop_weight = dropWeight; }
     t.set_entries.push(entry);
     await this.db.persist();
     return this._setView(entry);

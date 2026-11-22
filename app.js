@@ -84,8 +84,9 @@ function formatLoad(set) {
   return set.weight > 0 ? `${body} + ${numberFormat.format(set.weight)} kg` : body;
 }
 
-/** Ein Satz als Text: "10 × 60 kg". */
-const formatSet = (set) => `${set.reps} × ${formatLoad(set)}`;
+/** Ein Satz als Text: "10 × 60 kg". Mit reduziertem Gewicht im selben Satz: "6 × 60 kg → 4 × 50 kg". */
+const formatSet = (set) => `${set.reps} × ${formatLoad(set)}`
+  + (set.drop_reps ? ` → ${set.drop_reps} × ${formatLoad({ ...set, weight: set.drop_weight })}` : "");
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -1045,10 +1046,36 @@ async function buildExercisePage(session, exerciseId) {
   });
   const saveButton = h("button", { type: "submit", class: "btn primary" }, "Satz speichern");
 
+  // Optional: weitere Wiederholungen mit reduziertem Gewicht im selben Satz (bleibt normalerweise zugeklappt)
+  const dropReps = h("input", {
+    type: "number", id: "field-drop-reps", inputmode: "numeric", min: 1, max: 1000, step: 1,
+    disabled: true, required: true, "aria-label": "Weitere Wiederholungen mit reduziertem Gewicht",
+  });
+  const dropWeight = h("input", {
+    type: "number", id: "field-drop-weight", inputmode: "decimal", min: 0, max: 1000, step: "any",
+    disabled: true, "aria-label": "Reduziertes Gewicht in kg",
+  });
+  const dropBox = h("div", { class: "fields drop-box", hidden: true },
+    h("div", { class: "field" }, h("label", { for: "field-drop-reps" }, "Weitere Wdh."), dropReps),
+    h("div", { class: "field" }, h("label", { for: "field-drop-weight" }, "Reduziert (kg)"), dropWeight));
+  const dropToggle = h("button", { type: "button", class: "btn quiet", onclick: () => setDrop(dropBox.hidden) },
+    "+ Gewicht im Satz reduziert");
+
+  /** Klappt die Eingabe für den reduzierten Teil auf oder zu. Zugeklappt wird nichts davon gespeichert. */
+  function setDrop(open) {
+    dropBox.hidden = !open;
+    dropReps.disabled = dropWeight.disabled = !open;
+    dropToggle.textContent = open ? "Reduzierung entfernen" : "+ Gewicht im Satz reduziert";
+    if (open) dropReps.focus();
+    else dropReps.value = dropWeight.value = "";
+    syncWeightField();
+  }
+
   /** Bei "Körpergewicht" wird aus dem Gewicht ein optionales Zusatzgewicht. */
   function syncWeightField() {
     weightLabel.textContent = bodyweight.checked ? "Zusatzgewicht in kg (optional)" : "Gewicht in kg";
     weight.required = !bodyweight.checked;
+    dropWeight.required = !dropBox.hidden && !bodyweight.checked;
   }
   syncWeightField();
 
@@ -1076,12 +1103,15 @@ async function buildExercisePage(session, exerciseId) {
         weight: Number(weight.value) || 0,
         bodyweight: bodyweight.checked,
         note: note.value.trim() || null,
+        ...(dropBox.hidden ? {} : { drop_reps: Number(dropReps.value), drop_weight: Number(dropWeight.value) || 0 }),
       })).finally(() => { saveButton.disabled = false; });
     },
   },
     h("h2", {}, `Satz ${doneHere + 1}`),
     fieldsBox,
     h("label", { class: "check" }, bodyweight, "Körpergewicht (z. B. Klimmzüge)"),
+    dropToggle,
+    dropBox,
     note,
     saveButton);
 
@@ -1239,11 +1269,11 @@ async function renderMuscles() {
 
   return [
     backLink("#/", "Kalender"),
-    h("h1", {}, "Muskelgruppen"),
+    h("h1", {}, "Übungen bearbeiten"),
 
-    withInfo(h("h2", {}, "Übungen bearbeiten"),
-      "Ordne jede Übung ihrer Hauptmuskelgruppe zu. Die Auswertung auf der Startseite nutzt das. "
-      + "Mit „Ändern“ passt du Bezeichnung und Bild einer Übung an."),
+    withInfo(h("h2", {}, "Übungen"),
+      "Hier änderst du jede Übung unabhängig vom Workout: Bezeichnung und Bild über „Ändern“, "
+      + "die Muskelgruppe direkt in der Zeile. Die Auswertung auf der Startseite nutzt die Muskelgruppe."),
     ownExercises.length
       ? h("div", { class: "sheet" }, ownExercises.map((ex) => h("div", { class: "row edit-row" },
           h("span", { class: "grow" }, ex.name),
@@ -1280,6 +1310,7 @@ async function renderEditExercise(exerciseId) {
 
   let newImage = null;                 // neu gewähltes Bild (verkleinert)
   let removeImage = false;             // vorhandenes Bild entfernen?
+  let muscle = exercise.muscle ?? null;                // gewählte Muskelgruppe
 
   const nameInput = h("input", {
     type: "text", maxlength: 80, required: true, autocomplete: "off",
@@ -1319,7 +1350,7 @@ async function renderEditExercise(exerciseId) {
       class: "add-exercise",
       onsubmit: (event) => {
         event.preventDefault();
-        const changes = { name: nameInput.value };
+        const changes = { name: nameInput.value, muscle };
         if (newImage) changes.image = newImage;
         else if (removeImage) changes.remove_image = true;
         perform(async () => {
@@ -1329,6 +1360,8 @@ async function renderEditExercise(exerciseId) {
       },
     },
       h("label", { class: "muscle-field" }, h("span", { class: "muted small" }, "Bezeichnung"), nameInput),
+      h("label", { class: "muscle-field" }, h("span", { class: "muted small" }, "Muskelgruppe"),
+        muscleSelector(muscle, (value) => { muscle = value; })),
       h("div", { class: "actions" }, pickButton, removeButton, preview, fileInput),
       h("button", { type: "submit", class: "btn primary" }, "Speichern")),
   ];
@@ -1392,7 +1425,7 @@ async function renderSwap(sessionId, exerciseId) {
 /* ----- Workouts und Übungen verwalten ----- */
 
 async function renderManage() {
-  const [workouts, library] = await Promise.all([Api.get("/api/workouts"), Api.get("/api/exercises")]);
+  const workouts = await Api.get("/api/workouts");
 
   const nameInput = h("input", {
     type: "text", maxlength: 60, required: true,
@@ -1411,42 +1444,62 @@ async function renderManage() {
     h("h1", {}, "Workouts verwalten"),
     createForm,
     workouts.length ? null : h("p", { class: "empty" }, "Noch keine Workouts. Lege oben dein erstes an."),
-    workouts.map((workout) =>
-      h("section", { class: "workout" },
-        h("div", { class: "workout-head" },
-          h("i", { class: "dot lg", style: `background: ${workout.color}` }),
-          h("h2", {}, workout.name),
-          h("button", {
-            type: "button", class: "btn quiet",
-            onclick: () => {
-              const name = prompt("Neuer Name für das Workout:", workout.name)?.trim();
-              if (name && name !== workout.name) perform(() => Api.patch(`/api/workouts/${workout.id}`, { name }));
-            },
-          }, "Umbenennen"),
-          h("button", {
-            type: "button", class: "btn quiet danger",
-            onclick: () => confirm(`Workout „${workout.name}“ löschen? Bisherige Trainings bleiben im Kalender erhalten.`)
-              && perform(() => Api.delete(`/api/workouts/${workout.id}`)),
-          }, "Löschen")),
-        h("div", { class: "sheet" },
-          workout.exercises.length
-            ? workout.exercises.map((ex, index) =>
-                h("div", { class: "row" },
-                  ex.image_url ? h("img", { class: "thumb", src: ex.image_url, alt: "", loading: "lazy" }) : null,
-                  h("span", { class: "grow" }, ex.name),
-                  moveButton(workout, ex, -1, index === 0),
-                  moveButton(workout, ex, 1, index === workout.exercises.length - 1),
-                  h("button", {
-                    type: "button", class: "icon-x", "aria-label": `${ex.name} aus dem Workout entfernen`,
-                    onclick: () => perform(() => Api.delete(`/api/workouts/${workout.id}/exercises/${ex.id}`)),
-                  }, "✕")))
-            : h("p", { class: "empty" }, "Noch keine Übungen."),
-          buildExercisePicker({
-            library,
-            excludeIds: workout.exercises.map((e) => e.id),
-            submitLabel: "Übung hinzufügen",
-            onSubmit: (choice) => perform(() => Api.post(`/api/workouts/${workout.id}/exercises`, choice)),
-          })))),
+    // Jedes Workout ist nur eine Zeile; bearbeitet wird erst nach dem Öffnen
+    workouts.length ? h("div", { class: "sheet" }, workouts.map((workout) =>
+      h("a", { class: "row link-row", href: `#/manage/${workout.id}` },
+        h("i", { class: "dot lg", style: `background: ${workout.color}` }),
+        h("span", { class: "grow" }, workout.name),
+        h("span", { class: "muted small" }, plural(workout.exercises.length, "Übung", "Übungen")),
+        h("span", { class: "chev", "aria-hidden": "true" }, "›")))) : null,
+    h("p", { class: "add-link" }, h("a", { class: "btn quiet", href: "#/muscles" }, "Übungen bearbeiten")),
+  ];
+}
+
+/** Ein einzelnes Workout bearbeiten: umbenennen, löschen, Übungen hinzufügen, entfernen, sortieren. */
+async function renderManageWorkout(workoutId) {
+  const [workouts, library] = await Promise.all([Api.get("/api/workouts"), Api.get("/api/exercises")]);
+  const workout = workouts.find((w) => w.id === Number(workoutId));
+  if (!workout) { location.hash = "#/manage"; return null; }
+
+  return [
+    backLink("#/manage", "Workouts"),
+    h("section", { class: "workout" },
+      h("div", { class: "workout-head" },
+        h("i", { class: "dot lg", style: `background: ${workout.color}` }),
+        h("h1", {}, workout.name)),
+      h("div", { class: "actions" },
+        h("button", {
+          type: "button", class: "btn quiet",
+          onclick: () => {
+            const name = prompt("Neuer Name für das Workout:", workout.name)?.trim();
+            if (name && name !== workout.name) perform(() => Api.patch(`/api/workouts/${workout.id}`, { name }));
+          },
+        }, "Umbenennen"),
+        h("a", { class: "btn quiet", href: "#/muscles" }, "Übungen bearbeiten"),
+        h("button", {
+          type: "button", class: "btn quiet danger",
+          onclick: () => confirm(`Workout „${workout.name}“ löschen? Bisherige Trainings bleiben im Kalender erhalten.`)
+            && perform(async () => { await Api.delete(`/api/workouts/${workout.id}`); location.hash = "#/manage"; }),
+        }, "Löschen")),
+      h("div", { class: "sheet" },
+        workout.exercises.length
+          ? workout.exercises.map((ex, index) =>
+              h("div", { class: "row" },
+                ex.image_url ? h("img", { class: "thumb", src: ex.image_url, alt: "", loading: "lazy" }) : null,
+                h("span", { class: "grow" }, ex.name),
+                moveButton(workout, ex, -1, index === 0),
+                moveButton(workout, ex, 1, index === workout.exercises.length - 1),
+                h("button", {
+                  type: "button", class: "icon-x", "aria-label": `${ex.name} aus dem Workout entfernen`,
+                  onclick: () => perform(() => Api.delete(`/api/workouts/${workout.id}/exercises/${ex.id}`)),
+                }, "✕")))
+          : h("p", { class: "empty" }, "Noch keine Übungen."),
+        buildExercisePicker({
+          library,
+          excludeIds: workout.exercises.map((e) => e.id),
+          submitLabel: "Übung hinzufügen",
+          onSubmit: (choice) => perform(() => Api.post(`/api/workouts/${workout.id}/exercises`, choice)),
+        }))),
   ];
 }
 
@@ -1558,6 +1611,7 @@ const routes = [
   [/^#\/start$/, renderStart],
   [/^#\/backfill$/, renderBackfill],
   [/^#\/manage$/, renderManage],
+  [/^#\/manage\/(\d+)$/, renderManageWorkout],
   [/^#\/session$/, renderLiveSession],
   [/^#\/exercise\/(\d+)$/, renderLiveExercise],
   [/^#\/log\/(\d+)$/, renderLoggedSession],

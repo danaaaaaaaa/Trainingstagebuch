@@ -524,3 +524,13 @@ input[type=date]::-webkit-date-and-time-value, input[type=time]::-webkit-date-an
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root { --glass: var(--surface); --glass-strong: var(--surface); --bar: var(--bg); }
 }
+
+/* ----- Workouts verwalten: Liste, ein Workout wird erst nach dem Öffnen bearbeitet ----- */
+.link-row { text-decoration: none; color: inherit; min-height: 56px; }
+.workout .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.workout-head h1 { flex: 1; font-size: 1.5rem; }
+
+/* ----- Satz mit reduziertem Gewicht (optional, zugeklappt) ----- */
+.set-panel > .btn.quiet { display: block; width: 100%; margin-top: 4px; }
+.drop-box[hidden] { display: none; }
+.drop-box { margin-top: 8px; }
